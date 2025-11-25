@@ -352,7 +352,7 @@ class Mesh:
         return Js
 
 
-    # Implement a function that returns the of non-overlapping subdomains using METIS.
+    # Implement a function that returns the of `non-overlapping subdomains` using METIS.
     def decompose(self, n: int, edge_weights = None):
         """
         Decompose the mesh into `n` non-overlapping subdomains using PyMetis.
@@ -376,10 +376,11 @@ class Mesh:
         subdomains : list of Mesh
             List of Mesh objects, each representing a subdomain with its triangles
             assigned. The `domainID` attribute of each subdomain is set to the partition index.
-        membership : list of int
-            List mapping each triangle in the original mesh to its subdomain index.
+        membership : np.ndarray of int
+            Array mapping each triangle in the original mesh to its subdomain index.
             `membership[i]` is the subdomain ID of triangle `i`. This is very useful
-            for visualization and coloring plots according to subdomain assignment.
+            for visualization and coloring plots according to subdomain assignment. e.g.,
+            membership[i] = subdomain ID of triangle i.
 
         Example
         -------
@@ -414,9 +415,16 @@ class Mesh:
 
         _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
 
-        subdomains = [self.__class__(vertices = self.vertices, domainID = i) for i in range(n)]
-        for sd in subdomains:
-            sd.elements = []
+        subdomains = []
+        for i in range(n):
+            sd = Mesh.__new__(Mesh)  # create an uninitialized Mesh
+            sd.vertices = self.vertices           # share the vertices
+            sd.elements = []                      # start empty, will append local triangles
+            sd.domainID = i
+            sd.segments = None
+            sd.holes = None
+            sd.options = self.options
+            subdomains.append(sd)
 
         for tridx, part in enumerate(membership):
             subdomains[part].elements.append(self.elements[tridx])
@@ -450,5 +458,3 @@ class Mesh:
         Number of boundary elements: {len(self.boundary_triangles())}
         Total area: {total_area}'''
         return information
-        
-mesh = Mesh(vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1]]), options = 'qa0.01')

@@ -16,11 +16,38 @@ class Mesh:
 
         triangulation = tr.triangulate(tri = data, opts = options)
         self.vertices = triangulation['vertices']
+        self.elements = triangulation['triangles']
         self.segments = segments
         self.holes = holes
         self.options = options
         self.domainID = domainID
-        self.elements = triangulation['triangles']
+
+    # Implement a function that returns an array of same size with self.elements that i^th row represents the barycenter of the self.vertices[self.elements[i]]
+    def barycenters(self):
+        """
+        Compute the barycenters (centroids) of triangular elements in the mesh.
+
+        Returns
+        -------
+        numpy.ndarray
+            An array of shape (n_elements, 2), where each row contains the
+            [x, y] coordinates of the barycenter of a triangle.
+        
+        Notes
+        -----
+        The barycenter of a triangle with vertices v1, v2, v3 is computed as:
+        
+            barycenter = (v1 + v2 + v3)/3.
+
+        This method assumes that `self.vertices` is a NumPy array of shape (n_vertices, 2)
+        and `self.elements` is a NumPy array of shape (n_elements, 3), containing
+        the indices of vertices for each triangle.
+        """
+        barycenters = np.zeros((self.elements.shape[0], 2))
+        for i, triangle in enumerate(self.elements):
+            vertices = self.vertices[triangle]
+            barycenters[i] = np.mean(vertices, axis = 0)  
+        return barycenters
 
     # Implement a function that returns the `set` of edges for a given triangle element.
     def edges(self, element) -> set:

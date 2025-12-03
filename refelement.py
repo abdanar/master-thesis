@@ -11,6 +11,7 @@ class ReferenceElement:
         self.space = space
         self.degree = degree
         self.ref_nodes = self.reference_nodes()
+        self.nbasis = (degree + 1)*(degree + 2)//2
 
     # Compute nodes of a triangular element with Lagrange shape functions of a given degree
     def reference_nodes(self): # counterclockwise order

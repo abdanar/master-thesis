@@ -2,7 +2,7 @@ import numpy as np
 from refelement import ReferenceElement
 
 # The finite element is defined by
-# K - element domain (e.g., triangle, quadrilateral)
+# T - element domain (e.g., triangle, quadrilateral)
 # S - space of shape functions (e.g., Lagrange, Hermite)
 # N - the set of nodal variables.
 
@@ -15,15 +15,37 @@ class PhysicalElement:
         self.vertices = vertices
         self.ref_element = ref_element
 
-    # Define a reference map F: K_hat -> K, where K_hat is the reference element and K is the physical element
+    # Define a reference map F: T_hat -> T, where T_hat is the reference element and T is the physical element
     def reference_to_physical(self, ref_point: np.ndarray): 
-        # We have a unique mapping from reference to physical element, defined by the physical element's nodes
-        # Explanation: (0, 0) -> vert[0] = [x0, y0], (1, 0) -> vert[1] = [x1, y1], (0, 1) -> vert[2] = [x2, y2],
-        # where vert is given as vert = [[x0, y0], [x1, y1], [x2, y2]].
-        # The mapping can be expressed as:
-        # F(x_ref, y_ref) = A*[x_ref; y_ref] + b, where A is a 2x2 matrix and b is a 2x1 vector defined as:
-        # A = [[x1 - x0, x2 - x0], [y1 - y0, y2 - y0]]
-        # b = [x0; y0]
+        """
+        Map a point from the reference element to the physical element.
+
+        The reference element (e.g., unit triangle with vertices at (0,0), (1,0), (0,1))
+        is mapped to the physical element defined by the coordinates of its vertices.
+
+        Explanation
+        -----------
+        Let the physical element vertices be
+            vert = [[x0, y0], [x1, y1], [x2, y2]].
+        Then the reference points
+            (0,0) -> vert[0], (1,0) -> vert[1], (0,1) -> vert[2]
+        are mapped to the physical element via an affine transformation:
+            F(x_ref, y_ref) = A @ [x_ref; y_ref] + b
+        where
+            A = [[x1 - x0, x2 - x0],
+                [y1 - y0, y2 - y0]],
+            b = [x0, y0].
+
+        Parameters
+        ----------
+        ref_point : np.ndarray, shape (2,)
+            Coordinates of the point in the reference element (ξ, η).
+
+        Returns
+        -------
+        np.ndarray, shape (2,)
+            Coordinates of the corresponding point in the physical element.
+        """
 
         vert = self.vertices
         R = np.array([[vert[1, 0] - vert[0, 0], vert[2, 0] - vert[0, 0]],
@@ -33,22 +55,56 @@ class PhysicalElement:
 
     # Define the inverse map F^{-1}: K -> K_hat
     def physical_to_reference(self, phys_point: np.ndarray):
+        """
+        Map a point from the physical element back to the reference element.
 
-        # vert = self.vertices
-        # P = np.array([[vert[2, 1] - vert[0, 1], vert[0, 0] - vert[2, 0]],
-        #               [vert[0, 1] - vert[1, 1], vert[1, 0] - vert[0, 0]]])
-        # b = vert[0]
-        # output -> (1/np.linalg.det(P))*P@(phys_point - b)
+        This function computes the inverse of the affine mapping
+        defined by `reference_to_physical`. For a linear triangle,
+        the mapping from the reference triangle T_hat to the physical
+        triangle T is:
+            F(ξ, η) = A @ [ξ; η] + b
+        where
+            A = [[x1 - x0, x2 - x0],
+                [y1 - y0, y2 - y0]],
+            b = [x0, y0],
+        and vert = [[x0, y0], [x1, y1], [x2, y2]] are the physical vertices.
 
+        The inverse mapping F^{-1}: T -> T_hat is then:
+            [ξ; η] = A^{-1} @ (phys_point - b)
+
+        Parameters
+        ----------
+        phys_point : np.ndarray, shape (2,)
+            Coordinates of a point in the physical element.
+
+        Returns
+        -------
+        np.ndarray, shape (2,)
+            Coordinates of the corresponding point in the reference element.
+        """
+        
         return np.linalg.inv(self.jacobian())@(phys_point - self.vertices[0])
     
     # Compute the Jacobian matrix J of the transformation F at a given point in the reference element
     def jacobian(self):
-        # The reference map F can be expressed as:
-        # F(x, y) = (x_0 + (x_1 - x_0)*x + (x_2 - x_0)*y, y_0 + (y_1 - y_0)*x + (y_2 - y_0)*y) = (F1(x, y), F2(x, y))
-        # where (x_0, y_0), (x_1, y_1), (x_2, y_2) are the coordinates of the vertices of the physical element.
-        # The Jacobian matrix J is given by the partial derivatives of F with respect to x and y:
-        # J = [[dF1/dx, dF1/dy], [dF2/dx, dF2/dy]] = A defined in reference_to_physical method
+        """
+        Compute the Jacobian matrix J of the transformation from the reference
+        element K_hat to the physical element K.
+
+        For a triangular element with vertices
+            vert[0] = (x0, y0), vert[1] = (x1, y1), vert[2] = (x2, y2),
+        the reference map F: K_hat -> K is
+            F(xi, eta) = vert[0] + (vert[1] - vert[0]) * xi + (vert[2] - vert[0]) * eta
+
+        The Jacobian matrix J is
+            J = [[dF1/dxi, dF1/deta],
+                [dF2/dxi, dF2/deta]]
+
+        Returns
+        -------
+        np.ndarray, shape (2, 2)
+            The Jacobian matrix of the mapping from reference to physical element.
+        """
 
         vert = self.vertices
         J = np.array([[vert[1, 0] - vert[0, 0], vert[2, 0] - vert[0, 0]],
@@ -56,22 +112,74 @@ class PhysicalElement:
         return J
     
     def jacobian_inv(self):
+        """
+        Compute the inverse of the Jacobian matrix of the element transformation.
+
+        Returns
+        -------
+        np.ndarray, shape (2, 2)
+            The inverse of the Jacobian matrix J^{-1}.
+        """
         return np.linalg.inv(self.jacobian())
     
     def det_jacobian(self):
+        """
+        Compute the determinant of the Jacobian matrix of the element transformation.
+
+        The determinant is used for scaling integrals when transforming from the
+        reference element to the physical element.
+
+        Returns
+        -------
+        float
+            The determinant det(J) of the Jacobian matrix.
+        """
         return np.linalg.det(self.jacobian())
     
-    # Define a function that computes the shape functions at a given point in the physical element 
-    def phi_physical(self, phys_point: np.ndarray):
-        return self.ref_element.phi(self.physical_to_reference(phys_point))
-    
-    # Define a function that computes the gradients of the shape functions at a given point in the physical element
-    def grad_phi_physical(self, phys_point: np.ndarray):
-        # Transform gradient from reference element to physical element using the Jacobian
-        # grad_phi_phys(phys_point) = J^{-T}*grad_phi_ref(physical_to_reference(phys_point))
-        # where J is the Jacobian matrix of the transformation from reference to physical element (`jacobian` function above)
-        # The output is an array of shape (nbasis, 2) given by [gradphi_physical_0, gradphi_physical_1, ..., gradphi_physical_(nbasis-1)],
-        # where gradphi_physical_i = [grad_{x}phi_physical_i, grad_{y}phi_physical_i] is the gradient of the i-th shape function at the given physical point
+    # Define a function that computes the shape functions in the physical element at the given reference point
+    def phi_physical(self, ref_point: np.ndarray):
+        """
+        Evaluate the shape functions of the element at a given reference point.
 
-        grad_phi_ref = self.ref_element.grad_phi(self.physical_to_reference(phys_point))
+        The shape functions are defined on the reference element, and this method
+        simply calls the reference element's shape functions. For a triangular 
+        Lagrange element of degree p, the number of basis functions is nbasis = (p + 1)(p + 2)/2.
+
+        Parameters
+        ----------
+        ref_point : np.ndarray, shape (2,)
+            Coordinates of the point in the reference element K_hat.
+
+        Returns
+        -------
+        np.ndarray, shape (nbasis,)
+            Values of all shape functions at the given reference point.
+            Access the i-th shape function by `phi_physical[i]`.
+        """
+        return self.ref_element.phi(ref_point)
+    
+    # Define a function that computes the gradients of the shape functions in the physical element at the given reference point
+    def grad_phi_physical(self, ref_point: np.ndarray):
+        """
+        Evaluate the gradients of the shape functions at a given reference point,
+        mapped to the physical element.
+
+        The gradients in the physical element are obtained via the
+        transformation
+            grad_phi_phys = J^{-T} * grad_phi_ref
+        where J is the Jacobian of the mapping from the reference element 
+        to the physical element.
+
+        Parameters
+        ----------
+        ref_point : np.ndarray, shape (2,)
+            Coordinates of the point in the reference element K_hat.
+
+        Returns
+        -------
+        np.ndarray, shape (nbasis, 2)
+            Gradients of all basis functions at the given reference point.
+            Each row grad_phi_phys[i] = [dphi_i/dx, dphi_i/dy].
+        """
+        grad_phi_ref = self.ref_element.grad_phi(ref_point)
         return self.jacobian_inv().T@grad_phi_ref.T

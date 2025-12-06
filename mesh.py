@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import itertools as it
 from collections import defaultdict
+from phyelement import PhysicalElement
+from refelement import ReferenceElement
 import triangle as tr
 import pymetis
 
@@ -22,6 +24,24 @@ class Mesh:
         self.options = options
         self.domainID = domainID
 
+    # Total number of vertices in the triangulation
+    def nvertices(self):
+        return self.vertices.shape[0]
+    
+    # Total number of (unique) edges in the triangulation
+    def nedges(self):
+        edges = set()
+        for triangle in self.elements:
+            a, b, c = triangle
+            triedges = [(min(a, b), max(a, b)), (min(b, c), max(b, c)), (min(c, a), max(c, a))]
+            for edge in triedges:
+                edges.add(edge)
+        return len(edges)
+ 
+    # Total number triangles in the triangulation
+    def nelements(self):
+        return self.elements.shape[0]
+    
     # Implement a function that returns an array of same size with self.elements that i^th row represents the barycenter of the self.vertices[self.elements[i]]
     def barycenters(self):
         """
@@ -368,6 +388,78 @@ class Mesh:
         """
         bdvertices = self.boundary_vertices()
         return bool(set(element) & bdvertices)
+
+    # Implement a function that upgrade vertices and triangles array considering the higher degree Lagrange shape functions
+    def upgrade(self, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+        """
+        Upgrade the vertices and elements arrays for higher-degree Lagrange finite elements.
+
+        This function adds additional nodes to the mesh (edge and interior nodes) 
+        according to the specified polynomial degree for Lagrange shape functions.
+        It returns the updated vertex coordinates and element connectivity 
+        including the new higher-order nodes.
+
+        Parameters
+        ----------
+        domain : str, optional
+            The type of reference element domain. Default is 'triangle'.
+        space : str, optional
+            The finite element space type. Default is 'Lagrange'.
+        degree : int, optional
+            The polynomial degree of the Lagrange shape functions. 
+            Must be >= 1. Default is 1.
+
+        Returns
+        -------
+        updated_vertices : np.ndarray, shape (n_vertices_new, 2)
+            The coordinates of all vertices including new edge and interior nodes.
+        updated_elements : np.ndarray, shape (n_elements, n_nodes_per_element)
+            The updated element connectivity array including indices of new nodes.
+            Node ordering: first 3 vertices, then edge nodes, then interior nodes.
+
+        Notes
+        -----
+        - Edge node indices start after the original vertices, i.e., at `self.nvertices()`.
+        - Interior node indices start after all original vertices and edge nodes, 
+        i.e., at `self.nvertices() + self.nedges() * (degree - 1)`.
+        - This function uses dictionaries to track unique edge and interior nodes 
+        to avoid duplicate nodes when multiple elements share edges.
+        """
+
+        nel = self.nelements()
+        nvert  = self.nvertices()
+        nedg = self.nedges()
+        pedge = 3*(degree - 1) # number of edge nodes per triangle
+
+        updated_elements = np.zeros((nel, 3 + 3*(degree - 1) + (degree - 1)*(degree - 2)//2))
+        updated_elements[:, :3] = self.elements
+        updated_vertices = np.zeros((nvert + nedg*(degree - 1) + nel*(degree - 1)*(degree - 2)//2, 2))
+        updated_vertices[:nvert, :] = self.vertices 
+
+        edge_nodes_dict = defaultdict(int)
+        interior_nodes_dict = defaultdict(int)
+
+        edge_count = nvert
+        interior_count = nvert + nedg*(degree - 1)
+        for i, element in enumerate(self.elements):
+            nodes = PhysicalElement(vertices = self.vertices[element], ref_element = ReferenceElement(domain, space, degree)).physical_reference_nodes()
+            edge_nodes = nodes[3: 3 + pedge, :]
+            interior_nodes = nodes[3 + pedge:, :]
+            for j, enode in enumerate(edge_nodes):
+                key_node = tuple(enode)
+                if key_node not in edge_nodes_dict:
+                    edge_nodes_dict[key_node] = edge_count
+                    updated_vertices[edge_count] = enode
+                    edge_count += 1
+                updated_elements[i, j + 3] = edge_nodes_dict[key_node]
+            for k, inode in enumerate(interior_nodes):
+                key_node = tuple(inode)
+                if key_node not in interior_nodes_dict:
+                    interior_nodes_dict[key_node] = interior_count
+                    updated_vertices[interior_count] = inode
+                    interior_count += 1
+                updated_elements[i, k + pedge + 3] = interior_nodes_dict[key_node]
+        return updated_vertices, updated_elements
 
     # Implement a function that computes the Jacobian matrices for all triangles in the triangulation as a numpy array.
     def Jacobians(self) -> np.ndarray:

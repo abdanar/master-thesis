@@ -52,6 +52,10 @@ class PhysicalElement:
                       [vert[1, 1] - vert[0, 1], vert[2, 1] - vert[0, 1]]])
         b = vert[0]
         return R@ref_point + b
+    
+    # Compute nodes of a physical triangular element with Lagrange shape functions of a given degree
+    def physical_reference_nodes(self):
+        return self.reference_to_physical(self.ref_element.reference_nodes().T)
 
     # Define the inverse map F^{-1}: K -> K_hat
     def physical_to_reference(self, phys_point: np.ndarray):

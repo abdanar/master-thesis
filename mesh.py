@@ -24,7 +24,7 @@ class Mesh:
         self.options = options
         self.domainID = domainID
 
-    # Total number of vertices in the triangulation
+    # Total number of vertices in the triangulation - including boundary nodes
     def nvertices(self):
         return self.vertices.shape[0]
     
@@ -390,7 +390,7 @@ class Mesh:
         return bool(set(element) & bdvertices)
 
     # Implement a function that upgrade vertices and triangles array considering the higher degree Lagrange shape functions
-    def upgrade(self, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+    def upgrade(self, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1) -> tuple[np.ndarray, np.ndarray]:
         """
         Upgrade the vertices and elements arrays for higher-degree Lagrange finite elements.
 

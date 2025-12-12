@@ -8,7 +8,7 @@ class Assembler:
     def __init__(self, mesh: Mesh):
         self.mesh = mesh
 
-    # The total number of basis functions, or total number of global degrees of freedom
+    # The total number of basis functions, or total number of global degrees of freedom - including boundary 
     def ndof(self, degree: int):
         return self.mesh.nvertices() + self.mesh.nedges()*(degree - 1) + self.mesh.nelements()*(degree - 1)*(degree - 2)//2
     
@@ -79,13 +79,50 @@ class Assembler:
         return F_global
     
 
-    # Apply boundary conditions
-    def apply_Dirichlet_bc(self, K, f, dirichlet_nodes):
+    # Apply Dirichlet boundary conditions
+    def apply_Dirichlet_bc(self, K, rhs, dirichlet_nodes: dict) -> tuple[np.ndarray, np.ndarray]:
+
         """
-        dirichlet_nodes: dict {node_index: value}
+        Apply Dirichlet (essential) boundary conditions to a finite element system.
+
+        This function enforces prescribed values at specified degrees of freedom
+        by modifying the global stiffness matrix and right-hand side vector
+        in a "strong" sense. It zeros out the corresponding rows and columns
+        of the matrix, sets the diagonal to 1, and sets the right-hand side
+        to the prescribed boundary value.
+
+        Parameters
+        ----------
+        K : numpy.ndarray
+            The global stiffness (or system) matrix of shape (n, n), where n is
+            the total number of degrees of freedom including boundary nodes.
+        rhs : numpy.ndarray
+            The global right-hand side vector of shape (n,) or (n, 1) corresponding
+            to the system K u = rhs.
+        dirichlet_nodes : dict
+            A dictionary mapping global node indices to prescribed values.
+            Example: {0: 0.0, 5: 1.0} means node 0 is fixed at 0 and node 5 at 1.
+
+        Returns
+        -------
+        K_mod : numpy.ndarray
+            The modified stiffness matrix with Dirichlet conditions applied.
+        rhs_mod : numpy.ndarray
+            The modified right-hand side vector with Dirichlet conditions applied.
+
+        Notes
+        -----
+        - This function preserves symmetry of the matrix by zeroing both the row
+        and the column corresponding to the Dirichlet node.
+        - The original contributions in K and rhs at the Dirichlet nodes are overwritten.
+        - This is the standard "strong imposition" method for essential boundary conditions.
         """
+
         for node, value in dirichlet_nodes.items():
-            K[node, :] = 0        # zero out the row
-            K[node, node] = 1     # set diagonal to 1
-            f[node] = value       # set RHS
-        return K, f
+            K[node, :] = 0     # zero out the row
+            K[:, node] = 0     # zero out the column
+            K[node, node] = 1  # set the diagonal to 1
+            rhs[node] = value  # set rhs
+        return K, rhs
+
+    # Apply Neumann boundary conditions - one needs to define separate function for extra term in load vector, which is a line integral

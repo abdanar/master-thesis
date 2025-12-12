@@ -32,7 +32,7 @@ class LocalIntegrator:
         self.qorder = quadrature_order
 
     
-    def local_stiffness_matrix(self):
+    def local_stiffness_matrix(self) -> np.ndarray:
 
         """
         Compute the local stiffness matrix for the finite element.
@@ -80,7 +80,7 @@ class LocalIntegrator:
         return K
     
 
-    def local_convection_matrix(self):
+    def local_convection_matrix(self) -> np.ndarray:
         """
         Compute the local convection matrix C for the element.
 
@@ -124,7 +124,7 @@ class LocalIntegrator:
         return C
 
 
-    def local_mass_matrix(self):
+    def local_mass_matrix(self) -> np.ndarray:
 
         """
         Compute the local mass matrix for the finite element.
@@ -171,7 +171,7 @@ class LocalIntegrator:
         return M
          
         
-    def local_load_vector(self):
+    def local_load_vector(self) -> np.ndarray:
         """
         Compute the local load vector F for the element.
 

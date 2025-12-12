@@ -66,11 +66,46 @@ class SolutionVisualizer:
 
         # Plot filled contour
         plt.figure(figsize=(6,5))
-        plt.tricontourf(triang, self.u, levels = levels, cmap = cmap)
+        plt.tricontourf(triang, self.u.ravel(), levels = levels, cmap = cmap)
         plt.triplot(triang, color = 'k', linewidth = 0.5, alpha = 0.3)
         plt.colorbar(label = 'Solution u')
         plt.xlabel('x')
         plt.ylabel('y')
         plt.title('FEM Solution (Linear Lagrange)')
         plt.show()
+    def visualize_3d(self, cmap='viridis'):
+        """
+        Plot FEM solution for 2D triangular mesh as a 3D surface.
+
+        Parameters
+        ----------
+        cmap : str, optional
+            Colormap for surface plot (default 'viridis').
+        """
+
+        # Use mesh vertices and elements
+        vertices = self.mesh.vertices
+        elements = self.mesh.elements
+
+        x = vertices[:, 0]
+        y = vertices[:, 1]
+        z = self.u.ravel()  # Ensure z is 1D
+
+        # Create a triangulation
+        triang = mtri.Triangulation(x, y, elements)
+
+        # Create 3D figure
+        fig = plt.figure(figsize=(8,6))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Plot the surface
+        surf = ax.plot_trisurf(triang, z, cmap=cmap, edgecolor='k', linewidth=0.2, antialiased=True)
         
+        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='Solution u')
+        
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('u')
+        ax.set_title('FEM Solution 3D Surface')
+
+        plt.show()

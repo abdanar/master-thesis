@@ -4,10 +4,11 @@ import mesh
 import visualize 
 from triangle import triangulate
 from pdesolver import PoissonProblem
+from assembler import Assembler
 
 # Create a simple square mesh
 vert = np.array([[0,0],[1,0],[1,1],[0,1]])
-mesh_square = mesh.Mesh(vert, options = 'qa0.001')
+mesh_square = mesh.Mesh(vert, options = 'qa0.01')
 
 #visualizer_sq = visualize.MeshVisualizer(mesh_square)
 #visualizer_sq.visualize(visualizer_sq.carray_boundary())
@@ -27,10 +28,16 @@ for i, nodes in enumerate(mesh_square.vertices):
 
 pde = PoissonProblem(mesh_square, func, dirichlet_bc, neumann_bc = None, robin_bc = None)
 pde_solution = pde.solve()
-print(pde_solution)
+
+ndof = Assembler(mesh_square).ndof(degree = 1)
+
+print(f'The number of vertices is {mesh_square.nvertices()}')
+print(f'The size should be {ndof}')
+print(f'The size of the solution is {pde_solution.shape}')
 
 visualizer_pde = visualize.SolutionVisualizer(mesh_square, pde_solution)
 visualizer_pde.visualize()
+visualizer_pde.visualize_3d()
 
 
 

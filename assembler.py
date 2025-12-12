@@ -14,7 +14,7 @@ class Assembler:
     
     # below functions can be gathered under one function and become significantly faster!
 
-    def global_stiffness_matrix(self, diffusion, convection, reaction, func, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+    def global_stiffness_matrix(self, diffusion, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
 
         # Define global stiffness matrix
         n = self.ndof(degree)
@@ -24,13 +24,13 @@ class Assembler:
         _, triangles = self.mesh.upgrade(domain, space, degree)
         for triangle in triangles:
             phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
-            lstiffness = LocalIntegrator(phy_element, diffusion, convection, reaction, func, quadrature_order).local_stiffness_matrix()
+            lstiffness = LocalIntegrator(phy_element, quadrature_order).local_stiffness_matrix(diffusion)
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
                     K_global[i_global, j_global] += lstiffness[i_local, j_local]
         return K_global
     
-    def global_convection_matrix(self, diffusion, convection, reaction, func, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+    def global_convection_matrix(self, convection, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
 
         # Define global convection matrix
         n = self.ndof(degree)
@@ -40,13 +40,13 @@ class Assembler:
         _, triangles = self.mesh.upgrade(domain, space, degree)
         for triangle in triangles:
             phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
-            lconvection = LocalIntegrator(phy_element, diffusion, convection, reaction, func, quadrature_order).local_convection_matrix()
+            lconvection = LocalIntegrator(phy_element, quadrature_order).local_convection_matrix(convection)
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
                     C_global[i_global, j_global] += lconvection[i_local, j_local]
         return C_global
     
-    def global_mass_matrix(self, diffusion, convection, reaction, func, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+    def global_mass_matrix(self, reaction, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
 
         # Define global mass matrix
         n = self.ndof(degree)
@@ -56,14 +56,14 @@ class Assembler:
         _, triangles = self.mesh.upgrade(domain, space, degree)
         for triangle in triangles:
             phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
-            lmass = LocalIntegrator(phy_element, diffusion, convection, reaction, func, quadrature_order).local_mass_matrix()
+            lmass = LocalIntegrator(phy_element, quadrature_order).local_mass_matrix(reaction)
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
-                    M_global[i_global, j_global] += lmass[i_local, j_local]
+                    M_global[i_global, j_global] += lmass[i_local, j_local] # if there is any problem, switch the the positions of i_global, j_global!
         return M_global
     
     
-    def global_load_vector(self, diffusion, convection, reaction, func, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+    def global_load_vector(self, func, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
 
         # Define global stiffness matrix
         n = self.ndof(degree)
@@ -73,7 +73,7 @@ class Assembler:
         _, triangles = self.mesh.upgrade(domain, space, degree)
         for triangle in triangles:
             phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
-            lload = LocalIntegrator(phy_element, diffusion, convection, reaction, func, quadrature_order).local_load_vector()
+            lload = LocalIntegrator(phy_element, quadrature_order).local_load_vector(func)
             for i_local, i_global in enumerate(triangle):
                 F_global[i_global] += lload[i_local]
         return F_global

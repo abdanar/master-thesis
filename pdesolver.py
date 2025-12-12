@@ -14,7 +14,7 @@ class PoissonProblem:
     def solve(self):
         
         # Constant isotropic diffusion using lambda
-        diffusion = lambda x: np.eye(2)
+        diffusion = lambda x, y: np.eye(2)
         
         # Define an assembler
         assembler = Assembler(self.mesh)
@@ -26,10 +26,10 @@ class PoissonProblem:
         load_vector = assembler.global_load_vector(func = self.f)
 
         # Apply the Dirichlet boundary condition
-        K, rhs = assembler.apply_Dirichlet_bc(stiffness_matrix, load_vector, self.dirichlet)
+        lhsmatrix, rhs = assembler.apply_Dirichlet_bc(stiffness_matrix, load_vector, self.dirichlet)
 
         # Solve the linear system
-        u = LinearSolver(K, rhs).solve()
+        u = LinearSolver(lhsmatrix, rhs).solve()
     
         return u
 

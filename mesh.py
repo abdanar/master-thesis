@@ -431,7 +431,7 @@ class Mesh:
         nedg = self.nedges()
         pedge = 3*(degree - 1) # number of edge nodes per triangle
 
-        updated_elements = np.zeros((nel, 3 + 3*(degree - 1) + (degree - 1)*(degree - 2)//2))
+        updated_elements = np.zeros((nel, 3 + 3*(degree - 1) + (degree - 1)*(degree - 2)//2), dtype = int)
         updated_elements[:, :3] = self.elements
         updated_vertices = np.zeros((nvert + nedg*(degree - 1) + nel*(degree - 1)*(degree - 2)//2, 2))
         updated_vertices[:nvert, :] = self.vertices 

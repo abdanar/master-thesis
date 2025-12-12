@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.tri as mtri
 import matplotlib.pyplot as plt
 import mesh
 
@@ -31,3 +32,45 @@ class MeshVisualizer:
         plt.tripcolor(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], triangles = self.mesh.elements, facecolors = carray, edgecolors = "k")
         plt.colorbar()
         plt.show()
+
+class SolutionVisualizer:
+    def __init__(self, meshobj: mesh.Mesh, u: np.ndarray):
+        '''
+        u is the solution of the Pde that is 1d array and main purpose of this class is to visualize the result
+        '''
+        self.mesh = meshobj
+        self.u = u
+
+    def visualize(self, cmap = 'viridis', levels = 50):
+
+        """
+        Plot FEM solution for 2D triangular mesh with linear Lagrange elements (degree 1).
+
+        Parameters
+        ----------
+        cmap : str, optional
+            Colormap for contour plot (default 'viridis').
+        levels : int, optional
+            Number of contour levels (default 50).
+        """
+
+        # Use mesh vertices and elements
+        vertices = self.mesh.vertices
+        elements = self.mesh.elements
+
+        x = vertices[:, 0]
+        y = vertices[:, 1]
+
+        # Create a triangulation
+        triang = mtri.Triangulation(x, y, elements)
+
+        # Plot filled contour
+        plt.figure(figsize=(6,5))
+        plt.tricontourf(triang, self.u, levels = levels, cmap = cmap)
+        plt.triplot(triang, color = 'k', linewidth = 0.5, alpha = 0.3)
+        plt.colorbar(label = 'Solution u')
+        plt.xlabel('x')
+        plt.ylabel('y')
+        plt.title('FEM Solution (Linear Lagrange)')
+        plt.show()
+        

@@ -1,6 +1,9 @@
 import numpy as np
 from phyelement import PhysicalElement
 from quadrature import triangle_quadrature
+from logger import setup_logger
+
+logger = setup_logger(__name__, level = 'info')
 
 class LocalIntegrator:
     def __init__(self, element: PhysicalElement, quadrature_order = 2):
@@ -95,6 +98,8 @@ class LocalIntegrator:
         - The resulting matrix is symmetric if A(x) is symmetric.
         """
 
+        logger.info(f"Computing local stiffness matrix")
+
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
 
@@ -108,8 +113,11 @@ class LocalIntegrator:
             # Evaluate gradient of shape functions at this quadrature point, shape (nbasis, 2)
             grad_phi_vals = self.element.grad_phi_physical(node)
 
-            # Evaluate diffusion coefficient A(x) at this physical point, shape (2, 2)
-            diff_vals = diffusion(self.element.reference_to_physical(node))
+            # Map the reference quadrature point `node` to its physical coordinates `(x, y)` in the physical element.
+            x, y = self.element.reference_to_physical(node)
+
+            # Evaluate diffusion coefficient A(x, y) at this physical point, shape (2, 2)
+            diff_vals = diffusion(x, y)
 
             # Loop over all pairs of basis functions
             for i in range(nbasis):
@@ -156,6 +164,8 @@ class LocalIntegrator:
         vector and the gradient of the j-th basis function.
         """
 
+        logger.info(f"Computing local convection matrix")
+
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
 
@@ -172,8 +182,11 @@ class LocalIntegrator:
             # Evaluate gradient of shape functions at this quadrature point, shape (nbasis, 2)
             grad_phi_vals = self.element.grad_phi_physical(node)
 
-            # Evaluate convection coefficient b(x) at this physical point, shape (2, )
-            conv_vals = convection(self.element.reference_to_physical(node))
+            # Map the reference quadrature point `node` to its physical coordinates `(x, y)` in the physical element.
+            x, y = self.element.reference_to_physical(node)
+
+            # Evaluate convection coefficient b(x, y) at this physical point, shape (2, )
+            conv_vals = convection(x, y)
 
             # Loop over all pairs of basis functions
             for i in range(nbasis):
@@ -218,6 +231,8 @@ class LocalIntegrator:
         - The resulting matrix is symmetric if c(x) is scalar-valued and positive.
         """
 
+        logger.info(f"Computing local mass matrix")
+
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
 
@@ -231,8 +246,11 @@ class LocalIntegrator:
             # Evaluate shape functions at this quadrature point, shape (nbasis,)
             phi_vals = self.element.phi_physical(node)
 
-            # Evaluate reaction coefficient c(x) at this physical point
-            react_val = reaction(self.element.reference_to_physical(node))
+            # Map the reference quadrature point `node` to its physical coordinates `(x, y)` in the physical element.
+            x, y = self.element.reference_to_physical(node)
+
+            # Evaluate reaction coefficient c(x, y) at this physical point
+            react_val = reaction(x, y)
 
             # Loop over all pairs of basis functions
             for i in range(nbasis):
@@ -277,6 +295,8 @@ class LocalIntegrator:
         - The resulting vector can be added to the global load vector in assembly.
         """
 
+        logger.info(f"Computing local load vector")
+
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
 
@@ -290,8 +310,11 @@ class LocalIntegrator:
             # Evaluate shape functions at this quadrature point, shape (nbasis,)
             phi_vals = self.element.phi_physical(node)
 
-            # Evaluate f(x) at this physical point
-            func_val = func(self.element.reference_to_physical(node))
+            # Map the reference quadrature point `node` to its physical coordinates `(x, y)` in the physical element.
+            x, y = self.element.reference_to_physical(node)
+
+            # Evaluate f(x, y) at this physical point
+            func_val = func(x, y)
 
             # Loop over all pairs of basis functions
             for i in range(nbasis):

@@ -16,46 +16,77 @@ class PhysicalElement:
         self.ref_element = ref_element
 
     # Define a reference map F: T_hat -> T, where T_hat is the reference element and T is the physical element
-    def reference_to_physical(self, ref_point: np.ndarray): 
+    def reference_to_physical(self, ref_point: np.ndarray):
+         
         """
-        Map a point from the reference element to the physical element.
+        Map a point or points from the reference element to the physical element.
 
-        The reference element (e.g., unit triangle with vertices at (0,0), (1,0), (0,1))
-        is mapped to the physical element defined by the coordinates of its vertices.
+        The reference element (e.g., the unit triangle with vertices at (0,0), (1,0), (0,1))
+        is mapped to the physical element defined by its vertex coordinates via an affine transformation:
 
-        Explanation
-        -----------
-        Let the physical element vertices be
-            vert = [[x0, y0], [x1, y1], [x2, y2]].
-        Then the reference points
-            (0,0) -> vert[0], (1,0) -> vert[1], (0,1) -> vert[2]
-        are mapped to the physical element via an affine transformation:
-            F(x_ref, y_ref) = A @ [x_ref; y_ref] + b
+            F(ξ, η) = R @ [ξ; η] + b
+
         where
-            A = [[x1 - x0, x2 - x0],
-                [y1 - y0, y2 - y0]],
-            b = [x0, y0].
+            - R = [[x1 - x0, x2 - x0],
+                [y1 - y0, y2 - y0]] is the linear transformation matrix,
+            - b = [x0, y0] is the translation vector,
+            - (ξ, η) are coordinates in the reference element,
+            - (x, y) are coordinates in the physical element.
 
         Parameters
         ----------
-        ref_point : np.ndarray, shape (2,)
-            Coordinates of the point in the reference element (ξ, η).
+        ref_point : np.ndarray
+            Coordinates in the reference element. Can be:
+            - shape (2,) for a single point,
+            - shape (n, 2) for n points (each row is a point).
 
         Returns
         -------
-        np.ndarray, shape (2,)
-            Coordinates of the corresponding point in the physical element.
+        np.ndarray
+            Coordinates in the physical element. Returns:
+            - shape (2,) for a single input point,
+            - shape (n, 2) for multiple input points.
+
+        Raises
+        ------
+        ValueError
+            If `ref_point` does not have a valid shape.
+
+        Notes
+        -----
+        - The method handles both single points and multiple points.
+        - For multiple points, the affine transformation is applied to each row of `ref_point`.
+        - Broadcasting ensures that the translation vector `b` is correctly added in all cases.
         """
 
         vert = self.vertices
         R = np.array([[vert[1, 0] - vert[0, 0], vert[2, 0] - vert[0, 0]],
                       [vert[1, 1] - vert[0, 1], vert[2, 1] - vert[0, 1]]])
         b = vert[0]
-        return R@ref_point + b
-    
+
+        if ref_point.shape[0] == 2:
+            return R@ref_point + b
+        elif ref_point.shape[1] == 2:
+            return ref_point @ R.T + b[:, np.newaxis].T
+        else:
+            raise ValueError(f"Invalid shape for ref_point: {ref_point.shape}")
+        
     # Compute nodes of a physical triangular element with Lagrange shape functions of a given degree
     def physical_reference_nodes(self):
-        return self.reference_to_physical(self.ref_element.reference_nodes().T)
+        
+        """
+        Map all reference element nodes to their corresponding coordinates
+        in the physical triangular element using the affine transformation.
+
+        Returns
+        -------
+        np.ndarray, shape (n_nodes, 2)
+            Physical coordinates of all Lagrange nodes of this element.
+            - The first 3 rows correspond to the vertices.
+            - The remaining rows (if any) correspond to edge and interior nodes
+            for higher-degree Lagrange elements.
+        """
+        return self.reference_to_physical(self.ref_element.reference_nodes())
 
     # Define the inverse map F^{-1}: K -> K_hat
     def physical_to_reference(self, phys_point: np.ndarray):
@@ -186,4 +217,4 @@ class PhysicalElement:
             Each row grad_phi_phys[i] = [dphi_i/dx, dphi_i/dy].
         """
         grad_phi_ref = self.ref_element.grad_phi(ref_point)
-        return self.jacobian_inv().T@grad_phi_ref.T
+        return grad_phi_ref @ self.jacobian_inv()

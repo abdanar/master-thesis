@@ -3,6 +3,9 @@ from mesh import Mesh
 from refelement import ReferenceElement
 from phyelement import PhysicalElement
 from localint import LocalIntegrator
+from logger import setup_logger
+
+logger = setup_logger(__name__, level = 'info')
 
 class Assembler:
     def __init__(self, mesh: Mesh):
@@ -20,6 +23,8 @@ class Assembler:
         n = self.ndof(degree)
         K_global = np.zeros((n, n))
 
+        logger.info(f"Assembling global stiffness matrix for degree={degree} with {self.mesh.nelements()} elements")
+
         ref_element = ReferenceElement(domain, space, degree)
         _, triangles = self.mesh.upgrade(domain, space, degree)
         for triangle in triangles:
@@ -28,6 +33,7 @@ class Assembler:
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
                     K_global[i_global, j_global] += lstiffness[i_local, j_local]
+        logger.info("Global stiffness matrix assembly complete")
         return K_global
     
     def global_convection_matrix(self, convection, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
@@ -35,6 +41,8 @@ class Assembler:
         # Define global convection matrix
         n = self.ndof(degree)
         C_global = np.zeros((n, n))
+
+        logger.info(f"Assembling global convection matrix for degree={degree}")
 
         ref_element = ReferenceElement(domain, space, degree)
         _, triangles = self.mesh.upgrade(domain, space, degree)
@@ -44,6 +52,7 @@ class Assembler:
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
                     C_global[i_global, j_global] += lconvection[i_local, j_local]
+        logger.info("Global convection matrix assembly complete")
         return C_global
     
     def global_mass_matrix(self, reaction, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
@@ -51,6 +60,8 @@ class Assembler:
         # Define global mass matrix
         n = self.ndof(degree)
         M_global = np.zeros((n, n))
+
+        logger.info(f"Assembling global mass matrix for degree={degree}")
 
         ref_element = ReferenceElement(domain, space, degree)
         _, triangles = self.mesh.upgrade(domain, space, degree)
@@ -60,6 +71,7 @@ class Assembler:
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
                     M_global[i_global, j_global] += lmass[i_local, j_local] # if there is any problem, switch the the positions of i_global, j_global!
+        logger.info("Global mass matrix assembly complete")
         return M_global
     
     
@@ -69,6 +81,8 @@ class Assembler:
         n = self.ndof(degree)
         F_global = np.zeros((n, 1))
 
+        logger.info(f"Assembling global load vector for degree={degree}")
+
         ref_element = ReferenceElement(domain, space, degree)
         _, triangles = self.mesh.upgrade(domain, space, degree)
         for triangle in triangles:
@@ -76,6 +90,7 @@ class Assembler:
             lload = LocalIntegrator(phy_element, quadrature_order).local_load_vector(func)
             for i_local, i_global in enumerate(triangle):
                 F_global[i_global] += lload[i_local]
+        logger.info("Global load vector assembly complete")
         return F_global
     
 
@@ -118,11 +133,15 @@ class Assembler:
         - This is the standard "strong imposition" method for essential boundary conditions.
         """
 
+        logger.info(f"Applying Dirichlet boundary conditions to {len(dirichlet_nodes)} nodes")
+
         for node, value in dirichlet_nodes.items():
+            logger.debug(f"Applying Dirichlet at node {node} with value {value}")
             K[node, :] = 0     # zero out the row
             K[:, node] = 0     # zero out the column
             K[node, node] = 1  # set the diagonal to 1
             rhs[node] = value  # set rhs
+        logger.info("Dirichlet boundary conditions applied")
         return K, rhs
 
     # Apply Neumann boundary conditions - one needs to define separate function for extra term in load vector, which is a line integral

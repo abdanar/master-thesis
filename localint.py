@@ -3,59 +3,97 @@ from phyelement import PhysicalElement
 from quadrature import triangle_quadrature
 
 class LocalIntegrator:
-    def __init__(self, element: PhysicalElement, diffusion, convection, reaction, func, quadrature_order = 2):
+    def __init__(self, element: PhysicalElement, quadrature_order = 2):
+
         """
-        Consider the convection diffusion reaction equation given by
-            -∇·(A(x) ∇u(x)) + b(x)·∇u(x) + c(x)u(x) = f(x),
-        where
-            - A(x) is the diffusion (or conductivity) coefficient evaluated at x, - > 2x2 matrix
-            - b(x) is the convection coefficient evaluated at x, -> 1x2 vector
-            - c(x) is a scalar reaction or mass coefficient evaluated at x, -> scalar
-            - f(x) is the source function evaluated at the physical point x. -> scalar.
+        Local finite element integrator for convection-diffusion-reaction problems in 2D.
+
+        This class computes element-local matrices and load vectors for the PDE:
+
+            -∇·(A(x) ∇u(x)) + b(x)·∇u(x) + c(x) u(x) = f(x),   x ∈ T
+
+        where:
+            - A(x) : diffusion (conductivity) coefficient, 2x2 matrix,
+            - b(x) : convection/advection coefficient, length-2 vector,
+            - c(x) : reaction or mass coefficient, scalar,
+            - f(x) : source term, scalar.
+
+        The integrals are evaluated over a physical triangular element using
+        quadrature rules on the reference element and mapping via the element's Jacobian.
+
+        Methods
+        -------
+        local_stiffness_matrix(diffusion)
+            Compute the element stiffness matrix K[i,j] = ∫_T (∇φ_i)^T A ∇φ_j dx.
+        local_convection_matrix(convection)
+            Compute the element convection matrix C[i,j] = ∫_T (b · ∇φ_j) φ_i dx.
+        local_mass_matrix(reaction)
+            Compute the element mass/reaction matrix M[i,j] = ∫_T c φ_i φ_j dx.
+        local_load_vector(func)
+            Compute the element load vector F[i] = ∫_T f φ_i dx.
+
         Parameters
         ----------
-        diffusion : callable
-            A function A(x) returning a 2x2 numpy array.
-        convection : callable
-            A function b(x) returning a length-2 numpy array.
-        reaction : callable
-            A function c(x) returning a scalar.
-        func : callable
-            Right-hand side f(x), returning a scalar.
+        element : PhysicalElement
+            The physical element object providing geometry and basis function evaluations.
+        quadrature_order : int, optional
+            The order of quadrature used for numerical integration (default is 2).
+
+        Notes
+        -----
+        - Each method only requires the coefficient(s) it needs (diffusion, convection,
+        reaction, or source term) and returns a NumPy array of shape (nbasis, nbasis)
+        for matrices or (nbasis,) for the load vector.
+        - Gradients and shape functions are mapped to the physical element using the
+        Jacobian determinant and transformation from the reference element.
+        - Quadrature points and weights are precomputed in the constructor for efficiency.
+        - Suitable for linear or higher-order Lagrange triangular elements.
         """
 
         self.element = element
-        self.f = func
-        self.diff = diffusion
-        self.conv = convection
-        self.react = reaction
         self.qorder = quadrature_order
+        self.ref_pts, self.weights = triangle_quadrature(self.qorder) # get quadrature nodes and weights on the reference triangle
 
     
-    def local_stiffness_matrix(self) -> np.ndarray:
+    def local_stiffness_matrix(self, diffusion) -> np.ndarray:
 
         """
-        Compute the local stiffness matrix for the finite element.
+        Compute the element-local stiffness matrix for a 2D triangular finite element.
 
         The local stiffness matrix K is defined as:
+
             K[i, j] = ∫_T (∇φ_i(x))^T A(x) ∇φ_j(x) dx
+
         where:
-            - φ_i, φ_j are the shape functions of the element,
-            - ∇φ_i, ∇φ_j are their gradients in the physical element,
-            - A(x) is the diffusion (or conductivity) coefficient evaluated at x,
+            - φ_i, φ_j are the element's shape functions,
+            - ∇φ_i, ∇φ_j are the gradients of the shape functions mapped
+            to the physical element,
+            - A(x) is the 2x2 diffusion (or conductivity) coefficient evaluated at x,
             - T is the physical element domain.
 
-        Numerical integration is performed using a quadrature rule on the reference element,
-        and the gradients are mapped to the physical element using the Jacobian.
+        Numerical integration is performed using a quadrature rule on the reference
+        triangle and scaled by the determinant of the Jacobian for mapping to
+        the physical element.
+
+        Parameters
+        ----------
+        diffusion : callable
+            A function A(x) that takes a 2D point x (numpy array of shape (2,))
+            and returns a 2x2 NumPy array representing the diffusion coefficient.
 
         Returns
         -------
-        K : np.ndarray
-            Local stiffness matrix of shape (nbasis, nbasis), where nbasis is the number of basis functions.
-        """
+        K : np.ndarray, shape (nbasis, nbasis)
+            The local stiffness matrix for the element, where nbasis is the
+            number of basis functions associated with the element.
 
-        # get quadrature nodes and weights on the reference triangle
-        ref_pts, weights = triangle_quadrature(self.qorder)
+        Notes
+        -----
+        - This method assumes the element provides gradient evaluations at
+        quadrature points via `grad_phi_physical`.
+        - Quadrature points and weights are precomputed in the constructor.
+        - The resulting matrix is symmetric if A(x) is symmetric.
+        """
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -65,13 +103,13 @@ class LocalIntegrator:
         K = np.zeros((nbasis, nbasis))
     
         # loop over all quadrature points
-        for node, weight in zip(ref_pts, weights):
+        for node, weight in zip(self.ref_pts, self.weights):
 
             # Evaluate gradient of shape functions at this quadrature point, shape (nbasis, 2)
             grad_phi_vals = self.element.grad_phi_physical(node)
 
             # Evaluate diffusion coefficient A(x) at this physical point, shape (2, 2)
-            diff_vals = self.diff(self.element.reference_to_physical(node))
+            diff_vals = diffusion(self.element.reference_to_physical(node))
 
             # Loop over all pairs of basis functions
             for i in range(nbasis):
@@ -80,23 +118,43 @@ class LocalIntegrator:
         return K
     
 
-    def local_convection_matrix(self) -> np.ndarray:
-        """
-        Compute the local convection matrix C for the element.
+    def local_convection_matrix(self, convection) -> np.ndarray:
 
-        The convection term in the PDE is  b(x)·∇u. After multiplying 
-        by a test function φ_i and integrating over the element T,
-        the element matrix entries are:
-            C[i, j] = ∫_T ( b(x) · ∇φ_j(x) ) * φ_i(x) dx.
-        
+        """
+        Compute the element-local convection (advection) matrix for a 2D triangular element.
+
+        The local convection matrix C is defined as:
+
+            C[i, j] = ∫_T (b(x) · ∇φ_j(x)) * φ_i(x) dx
+
+        where:
+            - φ_i, φ_j are the element's shape functions,
+            - ∇φ_j is the gradient of φ_j mapped to the physical element,
+            - b(x) is the 2D convection/advection vector evaluated at x,
+            - T is the physical element domain.
+
+        This corresponds to the weak form of the PDE term b(x)·∇u(x) after
+        multiplication by the test function φ_i and integration over the element.
+
+        Parameters
+        ----------
+        convection : callable
+            A function b(x) that takes a 2D point x (numpy array of shape (2,))
+            and returns a length-2 NumPy array representing the convection vector.
+
         Returns
         -------
-        C : ndarray of shape (nbasis, nbasis)
-            The element-local convection matrix.
-        """
+        C : np.ndarray, shape (nbasis, nbasis)
+            The element-local convection matrix, where nbasis is the number of
+            basis functions associated with the element.
 
-        # get quadrature nodes and weights on the reference triangle
-        ref_pts, weights = triangle_quadrature(self.qorder)
+        Notes
+        -----
+        - Quadrature points and weights are precomputed in the constructor.
+        - The resulting matrix is generally **not symmetric**, even for constant b(x).
+        - conv_vals @ grad_phi_vals[j] computes the dot product between the convection
+        vector and the gradient of the j-th basis function.
+        """
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -106,7 +164,7 @@ class LocalIntegrator:
         C = np.zeros((nbasis, nbasis))
     
         # loop over all quadrature points
-        for node, weight in zip(ref_pts, weights):
+        for node, weight in zip(self.ref_pts, self.weights):
 
             # Evaluate shape functions at this quadrature point, shape (nbasis,)
             phi_vals = self.element.phi_physical(node)
@@ -115,7 +173,7 @@ class LocalIntegrator:
             grad_phi_vals = self.element.grad_phi_physical(node)
 
             # Evaluate convection coefficient b(x) at this physical point, shape (2, )
-            conv_vals = self.conv(self.element.reference_to_physical(node))
+            conv_vals = convection(self.element.reference_to_physical(node))
 
             # Loop over all pairs of basis functions
             for i in range(nbasis):
@@ -124,29 +182,41 @@ class LocalIntegrator:
         return C
 
 
-    def local_mass_matrix(self) -> np.ndarray:
+    def local_mass_matrix(self, reaction) -> np.ndarray:
 
         """
-        Compute the local mass matrix for the finite element.
+        Compute the element-local mass (reaction) matrix for a 2D triangular element.
 
         The local mass matrix M is defined as:
+
             M[i, j] = ∫_T c(x) * φ_i(x) * φ_j(x) dx
+
         where:
-            - φ_i, φ_j are the shape functions of the element,
-            - c(x) is a scalar reaction or mass coefficient evaluated at x,
+            - φ_i, φ_j are the element's shape functions,
+            - c(x) is the scalar reaction or mass coefficient evaluated at x,
             - T is the physical element domain.
 
-        Numerical integration is performed using a quadrature rule on the reference element,
-        and the shape functions are mapped to the physical element.
+        Numerical integration is performed using a quadrature rule on the reference
+        triangle and scaled by the determinant of the Jacobian for mapping to the
+        physical element.
+
+        Parameters
+        ----------
+        reaction : callable
+            A function c(x) that takes a 2D point x (numpy array of shape (2,))
+            and returns a scalar representing the reaction/mass coefficient.
 
         Returns
         -------
-        M : np.ndarray
-            Local mass matrix of shape (nbasis, nbasis), where nbasis is the number of basis functions.
-        """
+        M : np.ndarray, shape (nbasis, nbasis)
+            The element-local mass matrix, where nbasis is the number of basis
+            functions associated with the element.
 
-        # get quadrature nodes and weights on the reference triangle
-        ref_pts, weights = triangle_quadrature(self.qorder)
+        Notes
+        -----
+        - Quadrature points and weights are precomputed in the constructor.
+        - The resulting matrix is symmetric if c(x) is scalar-valued and positive.
+        """
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -156,13 +226,13 @@ class LocalIntegrator:
         M = np.zeros((nbasis, nbasis))
 
         # loop over all quadrature points
-        for node, weight in zip(ref_pts, weights):
+        for node, weight in zip(self.ref_pts, self.weights):
             
             # Evaluate shape functions at this quadrature point, shape (nbasis,)
             phi_vals = self.element.phi_physical(node)
 
             # Evaluate reaction coefficient c(x) at this physical point
-            react_val = self.react(self.element.reference_to_physical(node))
+            react_val = reaction(self.element.reference_to_physical(node))
 
             # Loop over all pairs of basis functions
             for i in range(nbasis):
@@ -171,30 +241,41 @@ class LocalIntegrator:
         return M
          
         
-    def local_load_vector(self) -> np.ndarray:
-        """
-        Compute the local load vector F for the element.
+    def local_load_vector(self, func) -> np.ndarray:
 
-        The local load vector is defined as:
-            F[i] = ∫_T f(x) * phi_i(x) dx
+        """
+        Compute the element-local load (source) vector for a 2D triangular element.
+
+        The local load vector F is defined as:
+
+            F[i] = ∫_T f(x) * φ_i(x) dx
 
         where:
-            - T is the physical element,
-            - phi_i(x) is the i-th shape function,
-            - f(x) is the source function evaluated at the physical point x.
+            - φ_i is the i-th shape function of the element,
+            - f(x) is the source term evaluated at the physical point x,
+            - T is the physical element domain.
 
-        Numerical integration is performed using quadrature points and weights
-        defined on the reference element, and the result is scaled by the determinant
-        of the Jacobian.
+        Numerical integration is performed using quadrature points and weights on
+        the reference triangle, scaled by the determinant of the Jacobian for mapping
+        to the physical element.
+
+        Parameters
+        ----------
+        func : callable
+            A function f(x) that takes a 2D point x (numpy array of shape (2,))
+            and returns a scalar representing the source term.
 
         Returns
         -------
-        np.ndarray, shape (nbasis, 1)
-            The local load vector for the element.
+        F : np.ndarray, shape (nbasis, 1)
+            The element-local load vector, where nbasis is the number of basis
+            functions associated with the element.
+
+        Notes
+        -----
+        - Quadrature points and weights are precomputed in the constructor.
+        - The resulting vector can be added to the global load vector in assembly.
         """
-        
-        # get quadrature nodes and weights on the reference triangle
-        ref_pts, weights = triangle_quadrature(self.qorder)
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -204,20 +285,16 @@ class LocalIntegrator:
         F = np.zeros((nbasis, 1))
 
         # loop over all quadrature points
-        for node, weight in zip(ref_pts, weights):
+        for node, weight in zip(self.ref_pts, self.weights):
             
             # Evaluate shape functions at this quadrature point, shape (nbasis,)
             phi_vals = self.element.phi_physical(node)
 
             # Evaluate f(x) at this physical point
-            func_val = self.f(self.element.reference_to_physical(node))
+            func_val = func(self.element.reference_to_physical(node))
 
             # Loop over all pairs of basis functions
             for i in range(nbasis):
                 F[i] += weight * detJ * func_val * phi_vals[i]
         return F
-
-
-
-   
     

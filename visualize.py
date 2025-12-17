@@ -73,7 +73,8 @@ class SolutionVisualizer:
         plt.ylabel('y')
         plt.title('FEM Solution (Linear Lagrange)')
         plt.show()
-    def visualize_3d(self, cmap='viridis'):
+
+    def visualize_3d(self, cmap = 'viridis'):
         """
         Plot FEM solution for 2D triangular mesh as a 3D surface.
 

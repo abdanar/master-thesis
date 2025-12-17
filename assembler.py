@@ -135,13 +135,25 @@ class Assembler:
 
         logger.info(f"Applying Dirichlet boundary conditions to {len(dirichlet_nodes)} nodes")
 
+        # The total number of nodes, including boudnary
+        nT = K.shape[0]
+
+        # Change RHS considering the Dirichlet boundary conditions
+        for i in range(nT):
+            if i in dirichlet_nodes:
+                rhs[i] = dirichlet_nodes[i]
+            else:
+                for node, value in dirichlet_nodes.items():
+                    rhs[i] -= K[i, node]*value
+
+        # Change LHS considering the Dirichlet boundary conditions
         for node, value in dirichlet_nodes.items():
-            logger.debug(f"Applying Dirichlet at node {node} with value {value}")
             K[node, :] = 0     # zero out the row
             K[:, node] = 0     # zero out the column
             K[node, node] = 1  # set the diagonal to 1
-            rhs[node] = value  # set rhs
+
         logger.info("Dirichlet boundary conditions applied")
+        
         return K, rhs
 
     # Apply Neumann boundary conditions - one needs to define separate function for extra term in load vector, which is a line integral

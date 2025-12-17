@@ -3,42 +3,38 @@ import numpy as np
 import mesh
 import visualize 
 from triangle import triangulate
-from pdesolver import PoissonProblem
+from heat import HeatProblem
 from assembler import Assembler
 
-# Create a simple square mesh
+# Create a simple square meshs
 vert = np.array([[0,0],[1,0],[1,1],[0,1]])
-mesh_square = mesh.Mesh(vert, options = 'qa0.01')
+mesh_square = mesh.Mesh(vert, options = 'qa0.05')
 
 #visualizer_sq = visualize.MeshVisualizer(mesh_square)
 #visualizer_sq.visualize(visualizer_sq.carray_boundary())
 
 # Define a source function
-def func(x, y):
+def func(x, y, t):
     return 2 * np.pi**2 * np.sin(np.pi*x) * np.sin(np.pi*y)
 
 # Define a Dirichlet boundary condition function
 def g(x, y):
     return np.sin(np.pi*x) * np.sin(np.pi*y)
 
-# Define a Dirichlet boundary condition dictionary
+# Define a Dirichlet boundary condition dictionary - ! not correct, just need to consider boundary nodes, not all 
 dirichlet_bc = dict()
 for i, nodes in enumerate(mesh_square.vertices):
     dirichlet_bc[i] = g(nodes[0], nodes[1])
 
-pde = PoissonProblem(mesh_square, func, dirichlet_bc, neumann_bc = None, robin_bc = None)
+pde = HeatProblem(mesh_square, func, dt, d0, T, dirichlet_bc, icond)
 pde_solution = pde.solve()
 
 ndof = Assembler(mesh_square).ndof(degree = 1)
 
-print(f'The number of vertices is {mesh_square.nvertices()}')
-print(f'The size should be {ndof}')
-print(f'The size of the solution is {pde_solution.shape}')
 
 visualizer_pde = visualize.SolutionVisualizer(mesh_square, pde_solution)
 visualizer_pde.visualize()
 visualizer_pde.visualize_3d()
-
 
 
 # # Create a donut mesh with a hole in the center

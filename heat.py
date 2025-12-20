@@ -1,11 +1,16 @@
 import numpy as np
+from tqdm import trange
+import sys
 from mesh import Mesh
 from assembler import Assembler
 from linearsolver import LinearSolver
 from timestepper import TimeStepper, BackwardEuler, CrankNicolson
+import logger as log 
+
+logger = log.setup_logger(__name__, level = 'info')
 
 class HeatProblem:
-    def __init__(self, mesh: Mesh, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: dict, tstepper: str = 'BackwardEuler'):
+    def __init__(self, mesh: Mesh, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'BackwardEuler'):
 
         """
         FEM solver for the time-dependent heat equation:
@@ -49,6 +54,7 @@ class HeatProblem:
         self.dirichlet = dirichlet_bc
         self.initial = icond
         self.tstepper = tstepper
+        self.ntime = int((T - t0)/dt) + 1 # total number of time nodes
 
     def assemble_space(self):
 
@@ -67,29 +73,40 @@ class HeatProblem:
         diffusion = lambda x, y: np.eye(2)
         reaction = lambda x, y: 1
 
-        M = assembler.global_mass_matrix(reaction=reaction)
-        A = assembler.global_stiffness_matrix(diffusion=diffusion)
+        logger.debug("Assembling spatial FEM matrices")
 
-        return M, A, assembler
+        M = assembler.global_mass_matrix(reaction = reaction)
+        logger.debug(f"Mass matrix assembled with shape {M.shape}")
 
-    def solve(self):
+        A = assembler.global_stiffness_matrix(diffusion = diffusion)
+        logger.debug(f"Stiffness matrix assembled with shape {A.shape}")
+
+        return assembler, M, A
+
+    def solve(self) -> np.ndarray:
 
         """
         Solve the PDE using the specified time-stepping method.
 
         Returns
         -------
-        u_history : list of np.ndarray
-            Solution vectors at all time steps
+        solution : np.ndarray
+            Each column corresponds to the solution at a specific time step:
+            solution[:, i] = u(x, t_i), with the first column representing the initial condition at t0.
         """
 
-        M, A, assembler = self.assemble_space()
-        n_steps = int(np.ceil((self.T - self.t0) / self.dt))
-        u_history = []
+        # Assemble FEM matrices
+        assembler, M, A = self.assemble_space()
+        nsteps = self.ntime - 1
+
+        # Pre-allocate solution array: columns are time steps
+        solution = np.zeros((M.shape[0], self.ntime))
+
+        logger.debug(f"Using {self.tstepper} time-stepping | Starting time integration | nsteps = {nsteps}, dt = {self.dt}")
 
         # Initial solution
         u_n = self.initial.copy()
-        u_history.append(u_n)
+        solution[:, 0] = u_n
 
         # Initialize previous step matrices and load vector for Crank-Nicolson
         F_prev = assembler.global_load_vector(lambda x, y: self.f(x, y, self.t0))
@@ -97,24 +114,23 @@ class HeatProblem:
 
         # Select time-stepper
         if self.tstepper == 'BackwardEuler':
-            stepper = BackwardEuler(M=lambda t: M, A=lambda t: A,
-                                    assembler=assembler, f=self.f,
-                                    dt=self.dt, t0=self.t0, dirichlet_bc=self.dirichlet)
+            stepper = BackwardEuler(M = lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
+                                    dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet)
         elif self.tstepper == 'CrankNicolson':
-            stepper = CrankNicolson(M=lambda t: M, A=lambda t: A,
-                                    assembler=assembler, f=self.f,
-                                    dt=self.dt, t0=self.t0, dirichlet_bc=self.dirichlet)
+            stepper = CrankNicolson(M =  lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
+                                    dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet)
         else:
             raise ValueError(f"Unknown time-stepper: {self.tstepper}")
 
-        # Time-stepping loop
+        # Time-stepping loop with tqdm
         t_n = self.t0
-        for step in range(n_steps):
-            if self.tstepper == 'BackwardEuler':
-                u_n = stepper.step(u_n, t_n)
-            elif self.tstepper == 'CrankNicolson':
-                u_n, A_prev, M_prev, F_prev = stepper.step(u_n, A_prev, M_prev, F_prev, t_n)
-            t_n += self.dt
-            u_history.append(u_n.copy())
-
-        return u_history
+        with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, disable = not sys.stdout.isatty()) as pbar:
+            for step in pbar:
+                pbar.set_postfix_str(f"\033[93mt={t_n:.3e}\033[0m")  # yellow t
+                if self.tstepper == 'BackwardEuler':
+                    u_n = stepper.step(u_n, t_n)
+                elif self.tstepper == 'CrankNicolson':
+                    u_n, A_prev, M_prev, F_prev = stepper.step(u_n, A_prev, M_prev, F_prev, t_n)
+                t_n += self.dt
+                solution[:, step + 1] = u_n.copy()
+        return solution

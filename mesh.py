@@ -6,6 +6,9 @@ from phyelement import PhysicalElement
 from refelement import ReferenceElement
 import triangle as tr
 import pymetis
+from logger import setup_logger
+
+logger = setup_logger(__name__, level = 'info')
 
 class Mesh:
     def __init__(self, vertices, segments = None, holes = None, domainID = 0, options: str = 'qa0.1'):
@@ -242,7 +245,7 @@ class Mesh:
                     bdedges.add(edge)
         return bdedges
 
-    # Implement a function that returns the set of (indices of) boundary vertices.
+    # Implement a function that returns the set of (indices of) boundary vertices. - global indices of boundary nodes
     def boundary_vertices(self) -> set:
         """
         Return the set of vertices that lie on the boundary of the mesh.
@@ -284,6 +287,27 @@ class Mesh:
         """
         bdedges = self.boundary_edges()
         return set(it.chain.from_iterable(bdedges))
+    
+    # Implement a function that returns a list of coordinates of all boundary nodes in the domain
+    def boundary_nodes(self) -> list:
+
+        """
+        Return the coordinates of all boundary vertices of the domain.
+
+        This method retrieves the vertices corresponding to the boundary indices
+        of the domain. Boundary vertices are obtained from the `boundary_vertices()` method.
+
+        Returns
+        -------
+        bdnodes : list
+            A list of arrays, where each array represents the coordinates of a boundary vertex.
+        """
+        
+        bdnodes = []
+        for i in self.boundary_vertices():
+            bdnodes.append(self.vertices[i])
+
+        return bdnodes
 
     # Implement a function that returns the set of boundary triangles.
     def boundary_triangles(self) -> set:
@@ -470,36 +494,43 @@ class Mesh:
             Js[i] = np.array([[b[0] - a[0], c[0] - a[0]], [b[1] - a[1], c[1] - a[1]]])
         return Js
 
+    # Partition the mesh into n subdomains using METIS, optionally adding overlapping layers.
+    # Each subdomain has its own local vertex indexing, elements, and mapping to global vertices.
+    def decompose(self, n: int, overlap: int = 0, edge_weights = None):
 
-    # Implement a function that returns the of `non-overlapping subdomains` using METIS.
-    def decompose(self, n: int, edge_weights = None):
         """
-        Decompose the mesh into `n` non-overlapping subdomains using PyMetis.
+        Decompose the mesh into `n` subdomains using PyMetis, with optional overlapping layers.
 
-        This method partitions the triangles of the mesh into `n` subdomains,
-        creating new Mesh objects for each subdomain. Each subdomain shares the
-        same global vertex coordinates but contains only the triangles assigned
-        to it. Partitioning is performed using PyMetis's graph partitioning
-        algorithm based on triangle adjacency.
+        This method partitions the triangles of the mesh into `n` subdomains, creating
+        new Mesh objects for each subdomain. Partitioning is performed using PyMetis's 
+        graph partitioning algorithm based on triangle adjacency. Each subdomain has:
+
+        - A local vertex array containing all vertices used in its triangles.
+        - Triangles renumbered to local vertex indices.
+        - A `domainID` set to the subdomain index (1 to n).
+
+        Overlapping layers (controlled by `overlap`) add neighboring triangles around
+        the subdomain boundary. Local-to-global mapping is provided to map local
+        subdomain vertices back to the original global mesh vertices.
 
         Parameters
         ----------
         n : int
-            The number of desired subdomains.
+            Number of desired subdomains.
+        overlap : int, optional
+            Number of overlapping layers to add around subdomain boundaries. Default is 0.
         edge_weights : list of int or None, optional
-            Weights of the edges in the mesh for PyMetis partitioning. The length
-            must match the number of adjacency connections. Can be None for unweighted partitioning.
+            Weights for PyMetis graph partitioning. Default is None.
 
         Returns
         -------
         subdomains : list of Mesh
-            List of Mesh objects, each representing a subdomain with its triangles
-            assigned. The `domainID` attribute of each subdomain is set to the partition index.
+            List of Mesh objects for each subdomain.
+        local_to_global_mappings : dict
+            Mapping from subdomain ID -> global vertex indices used in that subdomain.
+            {subdomain ID: np.array([sorted global indices for whole domain correspoding to the subdomain ID])}
         membership : np.ndarray of int
             Array mapping each triangle in the original mesh to its subdomain index.
-            `membership[i]` is the subdomain ID of triangle `i`. This is very useful
-            for visualization and coloring plots according to subdomain assignment. e.g.,
-            membership[i] = subdomain ID of triangle i.
 
         Example
         -------
@@ -522,37 +553,181 @@ class Mesh:
 
         Notes
         -----
-        - Each subdomain Mesh object has its `domainID` set to the partition index (0 to n-1).
+        - Triangles in each subdomain use **local vertex numbering**:
+        For example, if a subdomain uses global vertex indices [2, 3, 6, 8], then
+        local indices 0,1,2,3 correspond to global vertices 2,3,6,8.
+        - Overlapping layers expand the subdomain by including neighboring triangles
+        sharing boundary vertices.
+        - Subdomain numbering **starts from 1**, i.e., subdomain IDs are 1,2,...,n.
+        - ID 0 is reserved to indicate the **whole domain** (useful for visualization
+            and global assembly).  
+        - The `local_to_global_mappings` dict allows reconstruction of a global solution
+        from subdomain solutions.
         - The `membership` list is important for plotting and visualization: it maps
         every triangle in the original mesh to its subdomain, so you can use it
-        as a color array to show different subdomains in a plot.
-        - Keeping the original global vertex array allows easy mapping between
-        subdomain triangles and the original mesh for FEM assembly or interface conditions.
+        as a color array to show different subdomains in a plot. (non-overlapping version only)
         """
+
+        def local_boundary_vertices(triangles):
+            """Return set of boundary vertices from a list of triangles."""
+            bdedges = set()
+            for triangle in triangles:
+                a, b, c = triangle
+                triedges = [(min(a, b), max(a, b)), (min(b, c), max(b, c)), (min(c, a), max(c, a))]
+                for edge in triedges:
+                    if edge in bdedges:
+                        bdedges.discard(edge)
+                    else:
+                        bdedges.add(edge)
+            return set(it.chain.from_iterable(bdedges))
+
+        # Create adjacency list and partition using PyMetis
         adjdict = self.adjacency()
         adjlist = [list(adjdict[i]) for i in range(len(self.elements))]
-
         _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
 
+        # Initialize subdomain Mesh objects
         subdomains = []
-        for i in range(n):
+        for i in range(1, n + 1):
             sd = Mesh.__new__(Mesh)  # create an uninitialized Mesh
-            sd.vertices = self.vertices           # share the vertices
-            sd.elements = []                      # start empty, will append local triangles
+            sd.vertices = []          
+            sd.elements = []              
             sd.domainID = i
             sd.segments = None
             sd.holes = None
             sd.options = self.options
             subdomains.append(sd)
 
+        # Assign triangles to subdomains
+        subdomains_elements = {j: [] for j in range(1, n + 1)}
         for tridx, part in enumerate(membership):
-            subdomains[part].elements.append(self.elements[tridx])
-        
-        for sd in subdomains:
-            sd.elements = np.array(sd.elements, dtype=int)
+            subdomains_elements[part + 1].append(self.elements[tridx])
 
-        return subdomains, np.array(membership, dtype=int)
-    
+        for layer in range(overlap):
+            logger.debug(f"Adding overlapping layer {layer + 1}")
+            elements = self.elements
+            new_elements = {i: set(tuple(e) for e in subdomains_elements[i]) for i in range(1, n + 1)}
+            for sindex, selements in subdomains_elements.items():
+                bvertices = local_boundary_vertices(selements)
+                for bvertex in bvertices:
+                    for element in elements:
+                        if bvertex in element:
+                            element_tuple = tuple(element)
+                            if element_tuple not in new_elements[sindex]:
+                                selements.append(element)
+                                new_elements[sindex].add(element_tuple)
+
+        local_to_global_mappings = {}
+        for subdomain in subdomains:
+            elements = subdomains_elements[subdomain.domainID]
+            global_indices = np.unique(np.concatenate(elements)) # This is exactly map from localdof to global dof st local_indices = np.arange(0, len(global_indices), dtype=int)
+            mapping = {g: l for l, g in enumerate(global_indices)} # This is exactly map from global dof to localdof 
+            local_to_global_mappings[subdomain.domainID] = global_indices 
+            subdomain.vertices = self.vertices[global_indices]
+            subdomain.elements = np.array([[mapping[v] for v in element] for element in elements], dtype=int)
+
+        return subdomains, local_to_global_mappings, np.array(membership, dtype=int)
+
+    def subdomain_mapping(self, n: int, overlap: int = 0) -> dict:
+
+        """
+        Construct a mapping of boundary vertices across all subdomains in a decomposed domain.
+
+        For each subdomain, this function creates a dictionary mapping its boundary vertices
+        to all subdomains (and optionally the whole domain) that contain the same vertex.
+
+        - A boundary vertex may be shared by multiple subdomains.
+        - If a vertex is also on the boundary of the whole (non-decomposed) domain, a tuple
+        with first entry 0 is included to indicate this.
+
+        Parameters
+        ----------
+        n : int
+            Number of subdomains along each dimension (or total number, depending on the
+            implementation of `decompose`).
+        overlap : int, default=0
+            Number of overlapping layers of vertices between subdomains.
+
+        Returns
+        -------
+        allmaps : dict
+            Dictionary for **all subdomains**. For each subdomain `i`, the mapping is:
+
+            - Keys: global boundary indices in subdomain `i`.
+            - Values: lists of tuples `(j, g_index)` where:
+                - `j` is 0 if the vertex belongs to the whole domain, or a subdomain ID for decomposed subdomains.
+                - `g_index` is the local index of this boundary vertex in subdomain `j` (or in the whole domain if `j = 0`).
+
+            Format example:
+
+                allmaps[subdomainID_i][boundary_index_in_i] = [
+                    (j1, local_index_in_j1),
+                    (j2, local_index_in_j2),
+                    ...,
+                    (0, index_in_whole_domain)  # included if the vertex also belongs to the whole domain
+                ]
+
+        Example
+        -------
+        Suppose the domain is decomposed into subdomains with IDs 1, 2, and 3:
+
+        - A boundary vertex of subdomain 1 at local index 5 is shared with subdomain 2
+        at index 3 and subdomain 3 at index 7, and is also a boundary node of the whole domain
+        at index 10:
+
+            allmaps[1][5] = [
+                (0, 10),  # belongs to the whole domain
+                (2, 3),
+                (3, 7)
+            ]
+
+        - Another boundary vertex of subdomain 1 at local index 8 is shared only with
+        subdomain 3 at index 4 and also belongs to the whole domain at index 12:
+
+            allmaps[1][8] = [
+                (0, 12),
+                (3, 4)
+            ]
+
+        - A boundary vertex that appears **only on the whole domain** and not in any subdomain:
+
+            allmaps[subdomainID_i][boundary_index_in_i] = [
+                (0, g_index)
+            ]
+
+        Each subdomain stores, for each boundary vertex, a list of all other subdomains
+        (and possibly the whole domain) containing the same vertex, along with their
+        corresponding local indices.
+        """
+
+        allmaps = {}
+        # It is overuse here!, one can accept only subdomains instead of decomposing again!
+        subdomains, _, _ = self.decompose(n = n, overlap = overlap)
+
+        # Precompute boundary nodes of the whole domain
+        whole_boundary_nodes = self.boundary_nodes()
+        whole_vertices_view = self.vertices.view([('', self.vertices.dtype)]*self.vertices.shape[1])
+
+        for subdomain in subdomains:
+            sdomainID = subdomain.domainID
+            subdomain_maps = {}
+            boundary_indices = subdomain.boundary_vertices() # global boundary indices for boundary vertices
+            for bindex in boundary_indices:
+                boundary_node = subdomain.vertices[bindex]
+                subdomain_maps[bindex] = [] # initialize list for this boundary index
+                # check if node is on whole domain boundary
+                if any(np.all(boundary_node == v) for v in whole_boundary_nodes):
+                    position = np.where(whole_vertices_view == boundary_node.view([('', boundary_node.dtype)]*boundary_node.shape[0]))[0][0]
+                    subdomain_maps[bindex].append((0, position))   
+                for sdomain in subdomains:
+                    mask = np.all(sdomain.vertices == boundary_node, axis=1)
+                    if np.any(mask):
+                        position = np.where(mask)[0][0]
+                        subdomain_maps[bindex].append((sdomain.domainID, position))         
+            allmaps[sdomainID] = subdomain_maps
+
+        return allmaps
+            
     # Human-readable summary
     def __str__(self):
         return (f'''Mesh: {self.vertices.shape[0]} vertices, "

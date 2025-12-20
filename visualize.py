@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.tri as mtri
 import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider
 import mesh
 
 class MeshVisualizer:
@@ -24,7 +25,7 @@ class MeshVisualizer:
     
     # Build a color array representing the subdomain decomposition of the mesh.
     def carray_decomposition(self, n: int) -> np.ndarray:
-        _, membership = self.mesh.decompose(n)  # Example with n subdomains
+        _, _, membership = self.mesh.decompose(n)  # Example with n subdomains
         return np.array(membership)
     
     def visualize(self, carray: np.ndarray):
@@ -34,12 +35,26 @@ class MeshVisualizer:
         plt.show()
 
 class SolutionVisualizer:
-    def __init__(self, meshobj: mesh.Mesh, u: np.ndarray):
-        '''
-        u is the solution of the Pde that is 1d array and main purpose of this class is to visualize the result
-        '''
+    def __init__(self, meshobj: mesh.Mesh, u: np.ndarray, dt = None):
+
+        """
+        Parameters
+        ----------
+        meshobj : Mesh
+            Your FEM mesh
+        u : np.ndarray
+            Solution array, shape (ndofs, ntime)
+        dt : float, optional
+            Time step size, default 1.0
+        """
+
         self.mesh = meshobj
         self.u = u
+        if u.ndim == 1:
+            u = u[:, np.newaxis]
+        self.u = u
+        self.dt = dt
+        self.ntime = u.shape[1]
 
     def visualize(self, cmap = 'viridis', levels = 50):
 
@@ -75,6 +90,7 @@ class SolutionVisualizer:
         plt.show()
 
     def visualize_3d(self, cmap = 'viridis'):
+
         """
         Plot FEM solution for 2D triangular mesh as a 3D surface.
 
@@ -110,3 +126,46 @@ class SolutionVisualizer:
         ax.set_title('FEM Solution 3D Surface')
 
         plt.show()
+
+    def visualize_3d_time(self, cmap='viridis'):
+        """
+        Interactive 3D visualization with time slider.
+        """
+        x = self.mesh.vertices[:, 0]
+        y = self.mesh.vertices[:, 1]
+        elements = self.mesh.elements
+
+        triang = mtri.Triangulation(x, y, elements)
+
+        fig = plt.figure(figsize = (8,6), dpi = 100)
+        ax = fig.add_subplot(111, projection = '3d')
+        plt.subplots_adjust(bottom = 0.25)
+
+        # Initial surface
+        z = self.u[:, 0]
+        surf = ax.plot_trisurf(triang, z, cmap = cmap, edgecolor = 'k', linewidth = 0.2, antialiased = True)
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('u')
+        ax.set_title(f'FEM Solution 3D Surface | t = 0.0')
+
+        fig.colorbar(surf, ax = ax, shrink = 0.5, aspect = 10, label = 'Solution u')
+
+        # Slider axes
+        ax_slider = plt.axes((0.25, 0.1, 0.5, 0.03))
+        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime - 1, valinit = 0, valstep = 1)
+
+        def update(val):
+            step = int(time_slider.val)
+            ax.clear()
+            z = self.u[:, step]
+            surf = ax.plot_trisurf(triang, z, cmap = cmap, edgecolor = 'k', linewidth = 0.2, antialiased = True)
+            ax.set_xlabel('x')
+            ax.set_ylabel('y')
+            ax.set_zlabel('u')
+            ax.set_title(f'FEM Solution 3D Surface | t = {step * self.dt:.3f}')
+            fig.canvas.draw_idle()
+
+        time_slider.on_changed(update)
+        plt.show()
+    

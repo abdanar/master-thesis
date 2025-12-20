@@ -98,7 +98,7 @@ class LocalIntegrator:
         - The resulting matrix is symmetric if A(x) is symmetric.
         """
 
-        logger.info(f"Computing local stiffness matrix")
+        logger.debug(f"Computing local stiffness matrix")
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -164,7 +164,7 @@ class LocalIntegrator:
         vector and the gradient of the j-th basis function.
         """
 
-        logger.info(f"Computing local convection matrix")
+        logger.debug(f"Computing local convection matrix")
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -231,7 +231,7 @@ class LocalIntegrator:
         - The resulting matrix is symmetric if c(x) is scalar-valued and positive.
         """
 
-        logger.info(f"Computing local mass matrix")
+        logger.debug(f"Computing local mass matrix")
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -295,7 +295,7 @@ class LocalIntegrator:
         - The resulting vector can be added to the global load vector in assembly.
         """
 
-        logger.info(f"Computing local load vector")
+        logger.debug(f"Computing local load vector")
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()

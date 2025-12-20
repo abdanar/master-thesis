@@ -5,36 +5,72 @@ import visualize
 from triangle import triangulate
 from heat import HeatProblem
 from assembler import Assembler
+from owrelaxation import WaveformRelaxation
 
-# Create a simple square meshs
+# Create a simple square mesh - space mesh generation
 vert = np.array([[0,0],[1,0],[1,1],[0,1]])
-mesh_square = mesh.Mesh(vert, options = 'qa0.05')
+mesh_square = mesh.Mesh(vert, options = 'qa0.001')
 
-#visualizer_sq = visualize.MeshVisualizer(mesh_square)
-#visualizer_sq.visualize(visualizer_sq.carray_boundary())
+# Visualize the square mesh
+visualizer_sq = visualize.MeshVisualizer(mesh_square)
+
+# Create time nodes generation
+t0 = 0.0
+T = 3.0
+dt = 0.01
+ntime = int((T - t0)/dt) + 1  # total number of time nodes
+time_points = np.linspace(t0, T, ntime)  # array of time points
+
+# Define the exact solution
+def exact(x, y, t):
+    return (1 - t)*np.sin(np.pi*x)*np.sin(2*np.pi*y) + (1 + t**2)*np.sin(2*np.pi*x)*np.sin(np.pi*y)
 
 # Define a source function
 def func(x, y, t):
-    return 2 * np.pi**2 * np.sin(np.pi*x) * np.sin(np.pi*y)
+    return (-1 + 5*np.pi**2*(1 - t))*np.sin(np.pi*x)*np.sin(2*np.pi*y) + (2*t + 5*np.pi**2*(1 + t**2))*np.sin(2*np.pi*x)*np.sin(np.pi*y)
 
-# Define a Dirichlet boundary condition function
-def g(x, y):
-    return np.sin(np.pi*x) * np.sin(np.pi*y)
-
-# Define a Dirichlet boundary condition dictionary - ! not correct, just need to consider boundary nodes, not all 
+# Define a Dirichlet boundary condition dictionary
+vertices = mesh_square.vertices
 dirichlet_bc = dict()
-for i, nodes in enumerate(mesh_square.vertices):
-    dirichlet_bc[i] = g(nodes[0], nodes[1])
+for bnodes in mesh_square.boundary_vertices():
+    x, y = vertices[bnodes]
+    dirichlet_bc[bnodes] = exact(x, y, time_points)
 
-pde = HeatProblem(mesh_square, func, dt, d0, T, dirichlet_bc, icond)
-pde_solution = pde.solve()
+# Define an initial condition array
+ndof = vertices.shape[0]
+initial_cond = np.zeros(ndof)
+for i, vertex in enumerate(vertices):
+    x, y = vertex
+    initial_cond[i] = exact(x, y, t0)
 
-ndof = Assembler(mesh_square).ndof(degree = 1)
+OWR_solver =  WaveformRelaxation(mesh = mesh_square,                                        
+                                n = 3, 
+                                overlap = 1, 
+                                func = func,
+                                dt = dt, 
+                                t0 = t0, 
+                                T = T,
+                                dirichlet_bc = dirichlet_bc,
+                                icond = initial_cond,
+                                tstepper = 'BackwardEuler',
+                                method = 'RAS',
+                                maxiter = 100,
+                                tol = 1e-3)
+
+solution = OWR_solver.solve()
+visualizer_pde = visualize.SolutionVisualizer(mesh_square, solution, dt)
+visualizer_pde.visualize_3d_time()
 
 
-visualizer_pde = visualize.SolutionVisualizer(mesh_square, pde_solution)
-visualizer_pde.visualize()
-visualizer_pde.visualize_3d()
+# pde = HeatProblem(mesh_square, func, dt, d0, T, dirichlet_bc, icond)
+# pde_solution = pde.solve()
+
+# ndof = Assembler(mesh_square).ndof(degree = 1)
+
+
+# visualizer_pde = visualize.SolutionVisualizer(mesh_square, pde_solution)
+# visualizer_pde.visualize()
+# visualizer_pde.visualize_3d()
 
 
 # # Create a donut mesh with a hole in the center
@@ -61,7 +97,7 @@ visualizer_pde.visualize_3d()
 # print(mesh_donut.info()) 
 
 # # Get information about subdomains
-# submeshes, membership = mesh_donut.decompose(10)
+# submeshes, _,  membership = mesh_donut.decompose(10)
 # for submesh in submeshes:
 #     print(submesh.info())
 
@@ -70,7 +106,7 @@ visualizer_pde.visualize_3d()
 # visualizer_donut.visualize(visualizer_donut.carray_decomposition(10))
 
 # # Create visualizer and show decomposition into 10 subdomains 
-# submeshes, membership = mesh_square.decompose(20)
+# submeshes,_ , membership = mesh_square.decompose(20)
 # for submesh in submeshes:
 #     print(submesh.info())
 

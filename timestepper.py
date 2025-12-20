@@ -140,7 +140,7 @@ class BackwardEuler(TimeStepper):
         F = self.assembler.global_load_vector(func = func) # F_n+1
 
         lhs = M + self.dt*A
-        rhs = M@u_n + self.dt*F
+        rhs = M@u_n + self.dt*F.ravel()
 
         # Boundary condition is computed at t_n+1
         dirichlet = {k: v[i] for k, v in self.dirichlet_bc.items()}

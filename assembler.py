@@ -23,7 +23,7 @@ class Assembler:
         n = self.ndof(degree)
         K_global = np.zeros((n, n))
 
-        logger.info(f"Assembling global stiffness matrix for degree={degree} with {self.mesh.nelements()} elements")
+        logger.debug(f"Assembling global stiffness matrix for degree={degree} with {self.mesh.nelements()} elements")
 
         ref_element = ReferenceElement(domain, space, degree)
         _, triangles = self.mesh.upgrade(domain, space, degree)
@@ -33,7 +33,7 @@ class Assembler:
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
                     K_global[i_global, j_global] += lstiffness[i_local, j_local]
-        logger.info("Global stiffness matrix assembly complete")
+        logger.debug("Global stiffness matrix assembly complete")
         return K_global
     
     def global_convection_matrix(self, convection, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
@@ -42,7 +42,7 @@ class Assembler:
         n = self.ndof(degree)
         C_global = np.zeros((n, n))
 
-        logger.info(f"Assembling global convection matrix for degree={degree}")
+        logger.debug(f"Assembling global convection matrix for degree={degree}")
 
         ref_element = ReferenceElement(domain, space, degree)
         _, triangles = self.mesh.upgrade(domain, space, degree)
@@ -52,7 +52,7 @@ class Assembler:
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
                     C_global[i_global, j_global] += lconvection[i_local, j_local]
-        logger.info("Global convection matrix assembly complete")
+        logger.debug("Global convection matrix assembly complete")
         return C_global
     
     def global_mass_matrix(self, reaction, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
@@ -61,7 +61,7 @@ class Assembler:
         n = self.ndof(degree)
         M_global = np.zeros((n, n))
 
-        logger.info(f"Assembling global mass matrix for degree={degree}")
+        logger.debug(f"Assembling global mass matrix for degree={degree}")
 
         ref_element = ReferenceElement(domain, space, degree)
         _, triangles = self.mesh.upgrade(domain, space, degree)
@@ -71,7 +71,7 @@ class Assembler:
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
                     M_global[i_global, j_global] += lmass[i_local, j_local] # if there is any problem, switch the the positions of i_global, j_global!
-        logger.info("Global mass matrix assembly complete")
+        logger.debug("Global mass matrix assembly complete")
         return M_global
     
     
@@ -81,7 +81,7 @@ class Assembler:
         n = self.ndof(degree)
         F_global = np.zeros((n, 1))
 
-        logger.info(f"Assembling global load vector for degree={degree}")
+        logger.debug(f"Assembling global load vector for degree={degree}")
 
         ref_element = ReferenceElement(domain, space, degree)
         _, triangles = self.mesh.upgrade(domain, space, degree)
@@ -90,7 +90,7 @@ class Assembler:
             lload = LocalIntegrator(phy_element, quadrature_order).local_load_vector(func)
             for i_local, i_global in enumerate(triangle):
                 F_global[i_global] += lload[i_local]
-        logger.info("Global load vector assembly complete")
+        logger.debug("Global load vector assembly complete")
         return F_global
     
 
@@ -133,7 +133,7 @@ class Assembler:
         - This is the standard "strong imposition" method for essential boundary conditions.
         """
 
-        logger.info(f"Applying Dirichlet boundary conditions to {len(dirichlet_nodes)} nodes")
+        logger.debug(f"Applying Dirichlet boundary conditions to {len(dirichlet_nodes)} nodes")
 
         # The total number of nodes, including boudnary
         nT = K.shape[0]
@@ -152,7 +152,7 @@ class Assembler:
             K[:, node] = 0     # zero out the column
             K[node, node] = 1  # set the diagonal to 1
 
-        logger.info("Dirichlet boundary conditions applied")
+        logger.debug("Dirichlet boundary conditions applied")
         
         return K, rhs
 

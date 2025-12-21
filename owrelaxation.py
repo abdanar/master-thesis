@@ -7,7 +7,7 @@ logger = setup_logger(__name__, level = 'info')
 
 class WaveformRelaxation():
 
-    def __init__(self, mesh: Mesh, n: int, overlap: int, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, degree: int = 1, tstepper: str = 'BackwardEuler', method: str = 'RAS', maxiter: int = 100, tol: float = 1e-3, criterion: str = 'boundary'):
+    def __init__(self, mesh: Mesh, n: int, overlap: int, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, degree: int = 1, tstepper: str = 'BackwardEuler', theta: float = 0.5, method: str = 'RAS', maxiter: int = 100, tol: float = 1e-3, criterion: str = 'boundary'):
         
         """
         Initialize a Waveform Relaxation solver for time-dependent PDEs over a decomposed domain.
@@ -36,7 +36,9 @@ class WaveformRelaxation():
         degree : int, default=1
             Polynomial degree for finite element discretization.
         tstepper : str, default='BackwardEuler'
-            Time-stepping method to use, e.g., 'BackwardEuler' or 'CrankNicolson'.
+            Time-stepping method to use, e.g., 'BackwardEuler', 'CrankNicolson', 'Theta'.
+        theta : float, default=0.5
+            Parameter for the θ-method, 0 < θ ≤ 1. Only used if tstepper='Theta'.
         method : str, default='RAS'
             Waveform relaxation method, either 'RAS' (Restricted Additive Schwarz) or 'AS' (Additive Schwarz).
         maxiter : int, default=100
@@ -48,6 +50,7 @@ class WaveformRelaxation():
         """
         
         self.mesh = mesh
+        self.n = n
         self.overlap = overlap
         self.subdomains, self.ltog, _ = mesh.decompose(n = n, overlap = overlap)  # list of subdomains of type `Mesh` and dict of local to global mappings
         self.f = func
@@ -58,11 +61,11 @@ class WaveformRelaxation():
         self.initial = icond  # initial condition for the whole domain, for the main problem, Initial condition vector at t0 for all nodes of whole domain
         self.degree = degree
         self.tstepper = tstepper
+        self.theta = theta
         self.method = method
         self.maxiter = maxiter
         self.tol = tol
         self.criterion = criterion # stopping criterion
-        self.n = len(self.subdomains) # total number of subdomains
         self.ntime = int((T - t0)/dt) + 1 # total number of time nodes
         self.nspace = mesh.nvertices() + mesh.nedges()*(degree - 1) + mesh.nelements()*(degree - 1)*(degree - 2)//2 # total number of space nodes (for whole domain)
     
@@ -275,7 +278,8 @@ class WaveformRelaxation():
                     T = self.T, 
                     dirichlet_bc = dirichlet_bc, 
                     icond = initial_cond, 
-                    tstepper = self.tstepper)
+                    tstepper = self.tstepper,
+                    theta = self.theta)
                 new_data[domainid] = subdomain_heat.solve()
 
             error = self.boundary_criterion(initial_data, new_data)

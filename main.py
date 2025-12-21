@@ -9,7 +9,7 @@ from owrelaxation import WaveformRelaxation
 
 # Create a simple square mesh - space mesh generation
 vert = np.array([[0,0],[1,0],[1,1],[0,1]])
-mesh_square = mesh.Mesh(vert, options = 'qa0.001')
+mesh_square = mesh.Mesh(vert, options = 'qa0.01')
 
 # Visualize the square mesh
 visualizer_sq = visualize.MeshVisualizer(mesh_square)
@@ -44,23 +44,24 @@ for i, vertex in enumerate(vertices):
     initial_cond[i] = exact(x, y, t0)
 
 OWR_solver =  WaveformRelaxation(mesh = mesh_square,                                        
-                                n = 3, 
-                                overlap = 1, 
+                                n = 2, 
+                                overlap = 2, 
                                 func = func,
                                 dt = dt, 
                                 t0 = t0, 
                                 T = T,
                                 dirichlet_bc = dirichlet_bc,
                                 icond = initial_cond,
-                                tstepper = 'BackwardEuler',
-                                method = 'RAS',
+                                tstepper = 'Theta',
+                                theta = 0.5,
+                                method = 'AS',
                                 maxiter = 100,
-                                tol = 1e-3)
+                                tol = 1e-1)
 
 solution = OWR_solver.solve()
 visualizer_pde = visualize.SolutionVisualizer(mesh_square, solution, dt)
-visualizer_pde.visualize_3d_time()
-
+#visualizer_pde.visualize_3d_time()
+visualizer_pde.visualize_3d_time_compare(exact_func = exact)
 
 # pde = HeatProblem(mesh_square, func, dt, d0, T, dirichlet_bc, icond)
 # pde_solution = pde.solve()

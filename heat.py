@@ -1,16 +1,15 @@
+import sys
 import numpy as np
 from tqdm import trange
-import sys
 from mesh import Mesh
 from assembler import Assembler
-from linearsolver import LinearSolver
-from timestepper import TimeStepper, BackwardEuler, CrankNicolson
+import timestepper as ts
 import logger as log 
 
 logger = log.setup_logger(__name__, level = 'info')
 
 class HeatProblem:
-    def __init__(self, mesh: Mesh, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'BackwardEuler'):
+    def __init__(self, mesh: Mesh, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'BackwardEuler', theta: float = 0.5):
 
         """
         FEM solver for the time-dependent heat equation:
@@ -43,7 +42,13 @@ class HeatProblem:
         icond : np.ndarray
             Initial condition vector at t0
         tstepper : str
-            Time integration method ('BackwardEuler' or 'CrankNicolson')
+            Time integration method ('BackwardEuler', 'CrankNicolson', or 'Theta')
+        theta : float, optional
+            Parameter for the θ-method, 0 < θ ≤ 1. Only used if tstepper='Theta'.
+            Common values:
+                - θ = 1.0  → Backward Euler
+                - θ = 0.5  → Crank-Nicolson
+            Default is 0.5.
         """
 
         self.mesh = mesh
@@ -54,7 +59,8 @@ class HeatProblem:
         self.dirichlet = dirichlet_bc
         self.initial = icond
         self.tstepper = tstepper
-        self.ntime = int((T - t0)/dt) + 1 # total number of time nodes
+        self.theta = theta
+        self.ntime = int((T - t0)/dt) + 1 # total number of time nodes (including boundaries)
 
     def assemble_space(self):
 
@@ -114,11 +120,14 @@ class HeatProblem:
 
         # Select time-stepper
         if self.tstepper == 'BackwardEuler':
-            stepper = BackwardEuler(M = lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
+            stepper = ts.BackwardEuler(M = lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
                                     dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet)
         elif self.tstepper == 'CrankNicolson':
-            stepper = CrankNicolson(M =  lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
+            stepper = ts.CrankNicolson(M =  lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
                                     dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet)
+        elif self.tstepper == 'Theta':
+            stepper = ts.Theta(M =  lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
+                                    dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet, theta = self.theta)
         else:
             raise ValueError(f"Unknown time-stepper: {self.tstepper}")
 
@@ -130,6 +139,8 @@ class HeatProblem:
                 if self.tstepper == 'BackwardEuler':
                     u_n = stepper.step(u_n, t_n)
                 elif self.tstepper == 'CrankNicolson':
+                    u_n, A_prev, M_prev, F_prev = stepper.step(u_n, A_prev, M_prev, F_prev, t_n)
+                elif self.tstepper == 'Theta':
                     u_n, A_prev, M_prev, F_prev = stepper.step(u_n, A_prev, M_prev, F_prev, t_n)
                 t_n += self.dt
                 solution[:, step + 1] = u_n.copy()

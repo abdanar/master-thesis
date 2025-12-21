@@ -35,7 +35,7 @@ class MeshVisualizer:
         plt.show()
 
 class SolutionVisualizer:
-    def __init__(self, meshobj: mesh.Mesh, u: np.ndarray, dt = None):
+    def __init__(self, meshobj: mesh.Mesh, u: np.ndarray, dt=None):
 
         """
         Parameters
@@ -45,7 +45,7 @@ class SolutionVisualizer:
         u : np.ndarray
             Solution array, shape (ndofs, ntime)
         dt : float, optional
-            Time step size, default 1.0
+            Time step size
         """
 
         self.mesh = meshobj
@@ -127,7 +127,7 @@ class SolutionVisualizer:
 
         plt.show()
 
-    def visualize_3d_time(self, cmap='viridis'):
+    def visualize_3d_time(self, cmap = 'viridis'):
         """
         Interactive 3D visualization with time slider.
         """
@@ -163,9 +163,79 @@ class SolutionVisualizer:
             ax.set_xlabel('x')
             ax.set_ylabel('y')
             ax.set_zlabel('u')
-            ax.set_title(f'FEM Solution 3D Surface | t = {step * self.dt:.3f}')
+            ax.set_title(f'FEM Solution 3D Surface | t = {step*self.dt:.3f}')
             fig.canvas.draw_idle()
 
         time_slider.on_changed(update)
         plt.show()
-    
+
+    def visualize_3d_time_compare(self, exact_func, cmap='viridis', nx=100, ny=100):
+        """
+        Compare numeric FEM solution (triangular mesh) with smooth exact solution
+        on a fine grid for better visualization.
+        
+        Parameters:
+        -----------
+        exact_func : callable
+            exact_func(x, y, t)
+        cmap : str
+            colormap
+        nx, ny : int
+            resolution of the grid for smooth exact solution
+        """
+        x_mesh = self.mesh.vertices[:, 0]
+        y_mesh = self.mesh.vertices[:, 1]
+        elements = self.mesh.elements
+        triang = mtri.Triangulation(x_mesh, y_mesh, elements)
+
+        # Create fine grid for smooth exact solution
+        x_grid = np.linspace(0, 1, nx)
+        y_grid = np.linspace(0, 1, ny)
+        X_grid, Y_grid = np.meshgrid(x_grid, y_grid)
+
+        fig = plt.figure(figsize=(14,6))
+        ax1 = fig.add_subplot(121, projection='3d')
+        ax2 = fig.add_subplot(122, projection='3d')
+        plt.subplots_adjust(bottom=0.25)
+
+        # Initial surfaces
+        z_exact = exact_func(X_grid, Y_grid, 0.0)
+        z_num = self.u[:, 0]
+
+        surf1 = ax1.plot_surface(X_grid, Y_grid, z_exact, cmap=cmap, edgecolor='none')
+        ax1.set_title('Exact Solution (Smooth)')
+        ax1.set_xlabel('x'); ax1.set_ylabel('y'); ax1.set_zlabel('u')
+        fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10, label='u')
+
+        surf2 = ax2.plot_trisurf(triang, z_num, cmap=cmap, edgecolor='k', linewidth=0.2)
+        ax2.set_title('Numerical Solution')
+        ax2.set_xlabel('x'); ax2.set_ylabel('y'); ax2.set_zlabel('u')
+        fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10, label='u')
+
+        # Slider
+        ax_slider = plt.axes((0.25, 0.1, 0.5, 0.03))
+        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime-1, valinit=0, valstep=1)
+
+        def update(val):
+            step = int(time_slider.val)
+            t = step*self.dt
+
+            ax1.cla()
+            ax2.cla()
+
+            # Smooth exact
+            z_exact = exact_func(X_grid, Y_grid, t)
+            ax1.plot_surface(X_grid, Y_grid, z_exact, cmap=cmap, edgecolor='none')
+            ax1.set_title(f'Exact Solution | t={t:.3f}')
+            ax1.set_xlabel('x'); ax1.set_ylabel('y'); ax1.set_zlabel('u')
+
+            # Numeric
+            z_num = self.u[:, step]
+            ax2.plot_trisurf(triang, z_num, cmap=cmap, edgecolor='k', linewidth=0.2)
+            ax2.set_title(f'Numerical Solution | t={t:.3f}')
+            ax2.set_xlabel('x'); ax2.set_ylabel('y'); ax2.set_zlabel('u')
+
+            fig.canvas.draw_idle()
+
+        time_slider.on_changed(update)
+        plt.show()

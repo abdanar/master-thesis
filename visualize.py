@@ -12,12 +12,12 @@ class MeshVisualizer:
 
     # Build a color array representing the areas of the triangles in the mesh.
     def carray_areas(self) -> np.ndarray:
-        return self.mesh.areas()
+        return self.mesh.measures()
 
     # Build a color array where boundary triangles get color `1` and interior triangles get color `0`.
     def carray_boundary(self) -> np.ndarray:
         colors = np.zeros(self.mesh.elements.shape[0], dtype=int)
-        bdtriangles = self.mesh.boundary_triangles()
+        bdtriangles = self.mesh.boundary_elements()
         for i, triangle in enumerate(self.mesh.elements):
             if tuple(triangle) in bdtriangles:
                 colors[i] = 1

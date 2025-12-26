@@ -26,7 +26,7 @@ class Assembler:
         logger.debug(f"Assembling global stiffness matrix for degree={degree} with {self.mesh.nelements()} elements")
 
         ref_element = ReferenceElement(domain, space, degree)
-        _, triangles = self.mesh.upgrade(domain, space, degree)
+        triangles = self.mesh.upgrade(domain, space, degree).elements
         for triangle in triangles:
             phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
             lstiffness = LocalIntegrator(phy_element, quadrature_order).local_stiffness_matrix(diffusion)
@@ -45,7 +45,7 @@ class Assembler:
         logger.debug(f"Assembling global convection matrix for degree={degree}")
 
         ref_element = ReferenceElement(domain, space, degree)
-        _, triangles = self.mesh.upgrade(domain, space, degree)
+        triangles = self.mesh.upgrade(domain, space, degree).elements
         for triangle in triangles:
             phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
             lconvection = LocalIntegrator(phy_element, quadrature_order).local_convection_matrix(convection)
@@ -64,7 +64,7 @@ class Assembler:
         logger.debug(f"Assembling global mass matrix for degree={degree}")
 
         ref_element = ReferenceElement(domain, space, degree)
-        _, triangles = self.mesh.upgrade(domain, space, degree)
+        triangles = self.mesh.upgrade(domain, space, degree).elements
         for triangle in triangles:
             phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
             lmass = LocalIntegrator(phy_element, quadrature_order).local_mass_matrix(reaction)
@@ -84,7 +84,7 @@ class Assembler:
         logger.debug(f"Assembling global load vector for degree={degree}")
 
         ref_element = ReferenceElement(domain, space, degree)
-        _, triangles = self.mesh.upgrade(domain, space, degree)
+        triangles = self.mesh.upgrade(domain, space, degree).elements
         for triangle in triangles:
             phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
             lload = LocalIntegrator(phy_element, quadrature_order).local_load_vector(func)

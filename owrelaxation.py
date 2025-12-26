@@ -259,7 +259,7 @@ class WaveformRelaxation():
         logger.info(f"Number of subdomains: {len(self.subdomains)} | max iterations: {self.maxiter} | tolerance: {self.tol:.2e}")
         logger.info("="*80)
 
-        maps = self.mesh.subdomain_mapping(n = self.n, overlap = self.overlap)
+        maps = self.mesh.subdomain_mapping(self.subdomains)
 
         initial_data = self.initial_data()
 

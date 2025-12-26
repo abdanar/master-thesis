@@ -55,12 +55,13 @@ class ReferenceElement:
             self.domain = domain
         self.space = space
         self.degree = degree
-
-        # Reference nodes and number of basis functions
         self.ref_nodes = self.reference_nodes()
-        self.nbasis = (degree + 1)*(degree + 2)//2
+        if self.dim == 1:
+            self.nbasis = degree + 1
+        elif self.dim == 2:
+            self.nbasis = (degree + 1)*(degree + 2)//2
 
-    def reference_nodes(self):
+    def reference_nodes(self) -> np.ndarray:
         """
         Compute the reference nodes of the element for Lagrange shape functions.
 
@@ -119,8 +120,7 @@ class ReferenceElement:
                 [0, 0.5]]) # edge node (2->0)
         """
         if self.dim == 1 or self.domain == 'interval':
-            nodes = np.linspace(0, 1, self.degree + 1)[:, None]
-            return nodes
+            return np.linspace(0, 1, self.nbasis)[:, None]
         elif self.dim == 2 and self.domain == 'triangle':
             # Note: There are (degree + 1)(degree + 2)/2 nodes for Lagrange elements of given degree on a triangle
             vertex_nodes = np.array([[0, 0], [1, 0], [0, 1]]) # counterclockwise order
@@ -148,46 +148,137 @@ class ReferenceElement:
         else:
             raise NotImplementedError(f"Reference nodes not implemented for domain '{self.domain}' and dim={self.dim}.")
 
-    # Define a function that computes the shape functions at a given point in the reference element
-    def phi(self, ref_point: np.ndarray):
-        
-        # For reference triangle with Lagrange shape functions
-        # Number of nodal basis shape functions nbasis = (degree + 1)(degree + 2)/2
-        # The output is an array of shape (nbasis, ) given by [phi_0, phi_1, ..., phi_(nbasis-1)]
-        # where phi_i is the value of the i-th shape function at the given reference point
-        # so one can access the value of the i-th shape function at the reference point by phi[i]
+    def phi(self, ref_point) -> np.ndarray:
+        """
+        Evaluate Lagrange shape functions at a point in the reference element.
 
-        nbasis = (self.degree + 1)*(self.degree + 2)//2
-        phi = np.zeros(nbasis)
-        x_ref, y_ref = ref_point
-        if self.degree == 1:
-            phi[0] = 1 - x_ref - y_ref # phi_0(x, y) = 1 - x - y
-            phi[1] = x_ref             # phi_1(x, y) = x
-            phi[2] = y_ref             # phi_2(x, y) = y
+        This method returns the values of all nodal Lagrange basis functions
+        evaluated at `ref_point`. The ordering of the basis functions is such
+        that φ_i corresponds to the i-th reference node returned by
+        `self.reference_nodes()`.
+
+        Supported reference elements
+        -----------------------------
+        - 1D interval [0, 1]
+        - 2D reference triangle with vertices (0,0), (1,0), (0,1)
+
+        Parameters
+        ----------
+        ref_point : scalar or np.ndarray
+            Evaluation point in reference coordinates.
+            - 1D: scalar
+            - 2D: shape (2,)
+
+        Returns
+        -------
+        phi : np.ndarray
+            Array of shape (nbasis,), where phi[i] = φ_i(ref_point).
+        """
+        if self.dim == 1 or self.domain == 'interval':
+            if self.degree == 1:
+                return np.array([1 - ref_point, ref_point])
+            else:
+                nbasis = self.nbasis
+                # Solve 1D Vandermonde system for Lagrange basis
+                nodes = self.reference_nodes()[:, 0]
+                V = np.vander(nodes, increasing = True).T  # shape (nbasis, nbasis)
+                phi = np.linalg.solve(V, np.array([ref_point**i for i in range(nbasis)]))
+                return phi
+        elif self.dim == 2 and self.domain == 'triangle':
+            x_ref, y_ref = ref_point
+            if self.degree == 1:
+                return np.array([1 - x_ref - y_ref, x_ref, y_ref])
+            else:
+                # Solve 2D Vandermonde system for Lagrange basis
+                ref_nodes = self.reference_nodes()
+                # Build monomial basis (1, x, y, x^2, xy, y^2, ...)
+                monomials = []
+                for i in range(self.degree + 1):
+                    for j in range(self.degree + 1 - i):
+                        monomials.append((i, j))
+                V = np.array([[node[0]**p[0]*node[1]**p[1] for p in monomials] for node in ref_nodes])
+                rhs = np.array([x_ref**p[0]*y_ref**p[1] for p in monomials])
+                phi = np.linalg.solve(V, rhs)
+                return phi
         else:
-            ref_nodes = self.reference_nodes()
-            # construct Vandermonde like matrix for Lagrange basis functions in 2D and solve the system to get coefficients -> will be added later
-        return phi
+            raise NotImplementedError(f"phi not implemented for domain '{self.domain}' and dim={self.dim}.")
     
-    # Define a function that computes the gradients of the shape functions at a given point in the reference element
-    def grad_phi(self, ref_point: np.ndarray):
+    def grad_phi(self, ref_point) -> np.ndarray:
+        """
+        Evaluate gradients of Lagrange shape functions at a point
+        in the reference element.
 
-        # Compute the gradients of the shape functions at a given point in the reference element
-        # Number of nodal basis shape functions nbasis = (degree + 1)(degree + 2)/2
-        # The output is an array of shape (nbasis, 2) given by [gradphi_0, gradphi_1, ..., gradphi_(nbasis-1)],
-        # where gradphi_i = [grad_{x}phi_i, grad_{y}phi_i] is the gradient of the i-th shape function at the given reference point
-        # so one can access the gradient of the i-th shape function at the reference point by grad_phi[i]
+        This method computes the gradients ∇φ_i of all nodal Lagrange
+        basis functions evaluated at the reference point `ref_point`.
+        The ordering is consistent with `self.reference_nodes()`, i.e.,
+        ∇φ_i corresponds to the i-th reference node.
 
-        nbasis = (self.degree + 1)*(self.degree + 2)//2
-        grad_phi = np.zeros((nbasis, 2))
-        x_ref, y_ref = ref_point
-        if self.degree == 1:
-            grad_phi = np.array([[-1, -1], [1, 0], [0, 1]]) # gradients of linear shape functions are constant
+        Supported reference elements
+        -----------------------------
+        - 1D reference interval [0, 1]
+        - 2D reference triangle with vertices (0,0), (1,0), (0,1)
+
+        In 1D, the gradient is the derivative with respect to the
+        reference coordinate ξ.
+        In 2D, the gradient is taken with respect to (x, y).
+
+        Parameters
+        ----------
+        ref_point : scalar or np.ndarray
+            Evaluation point in reference coordinates.
+            - 1D: scalar ξ
+            - 2D: array-like of length 2, representing (x, y)
+
+        Returns
+        -------
+        grad_phi : np.ndarray
+            Array containing the gradients of the shape functions:
+            - 1D: shape (nbasis, 1), where grad_phi[i, 0] = dφ_i/dξ
+            - 2D: shape (nbasis, 2), where
+                grad_phi[i] = [∂φ_i/∂x, ∂φ_i/∂y]
+
+        Notes
+        -----
+        - For degree 1 elements, gradients are constant and given explicitly.
+        - For higher degrees, gradients are computed by differentiating
+          the monomial basis and solving the corresponding Vandermonde system.
+        - The implementation assumes Lagrange nodal basis functions
+          defined on the reference element.
+        """
+        if self.dim == 1 or self.domain == "interval":
+            # Linear case: constant gradients
+            if self.degree == 1:
+                return np.array([[-1.0], [1.0]])
+            else:
+                nbasis = self.nbasis
+                grad_phi = np.zeros((nbasis, 1))
+                xi = float(ref_point)
+                # Higher order: differentiate Vandermonde system
+                nodes = self.reference_nodes()[:, 0]
+                # Vandermonde matrix: V_{ij} = ξ_j^i
+                V = np.vander(nodes, N=nbasis, increasing=True).T
+                # Derivatives of monomials at xi: d/dx (x^k) = k x^{k-1}
+                b = np.zeros(nbasis)
+                for k in range(1, nbasis):
+                    b[k] = k * xi**(k - 1)
+                grad_phi[:, 0] = np.linalg.solve(V, b)
+                return grad_phi
+        elif self.dim == 2 and self.domain == "triangle":
+            if self.degree == 1:
+                return np.array([[-1, -1], [1, 0], [0, 1]]) # gradients of linear shape functions are constant
+            else:
+                x_ref, y_ref = ref_point
+                grad_phi = np.zeros((self.nbasis, 2))
+                ref_nodes = self.reference_nodes()
+                # Monomial basis ordered by total degree
+                monomials = [(i, j) for i in range(self.degree + 1) for j in range(self.degree + 1 - i)]
+                # Vandermonde matrix
+                V = np.array([[node[0]**p * node[1]**q for (p, q) in monomials] for node in ref_nodes])
+                # Right-hand sides: gradients of monomials at (x, y)
+                bx = np.array([p * x_ref**(p - 1) * y_ref**q if p > 0 else 0.0 for (p, q) in monomials])
+                by = np.array([q * x_ref**p * y_ref**(q - 1) if q > 0 else 0.0 for (p, q) in monomials])
+                grad_phi[:, 0] = np.linalg.solve(V, bx)
+                grad_phi[:, 1] = np.linalg.solve(V, by)
+                return grad_phi
         else:
-            ref_nodes = self.reference_nodes()
-            # construct Vandermonde like matrix for Lagrange basis functions in 2D and solve the system to get coefficients -> will be added later
-        return grad_phi
-    
-
-
-    
+            raise NotImplementedError(f"grad_phi not implemented for domain '{self.domain}' and dim={self.dim}.")

@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 from tqdm import trange
-from mesh import Mesh
+from femspace import FEMSpace
 from assembler import Assembler
 import timestepper as ts
 import logger as log 
@@ -9,7 +9,7 @@ import logger as log
 logger = log.setup_logger(__name__, level = 'info')
 
 class HeatProblem:
-    def __init__(self, mesh: Mesh, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'BackwardEuler', theta: float = 0.5):
+    def __init__(self, femspace: FEMSpace, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'BackwardEuler', theta: float = 0.5):
 
         """
         FEM solver for the time-dependent heat equation:
@@ -26,8 +26,8 @@ class HeatProblem:
 
         Parameters
         ----------
-        mesh : Mesh
-            FEM mesh object
+        femspace : FEMSpace
+            FEM space object
         func : callable
             Source term f(x, y, t)
         dt : float
@@ -50,8 +50,7 @@ class HeatProblem:
                 - θ = 0.5  → Crank-Nicolson
             Default is 0.5.
         """
-
-        self.mesh = mesh
+        self.femspace = femspace
         self.f = func
         self.dt = dt
         self.t0 = t0
@@ -74,8 +73,7 @@ class HeatProblem:
             assembler : Assembler
                 FEM assembler object
         """
-
-        assembler = Assembler(self.mesh)
+        assembler = Assembler(self.femspace)
         diffusion = lambda x, y: np.eye(2)
         reaction = lambda x, y: 1
 

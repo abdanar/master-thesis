@@ -30,7 +30,7 @@ import numpy as np
 # --------------------------------------------------------------------------
 
 class ReferenceElement:
-    def __init__(self, dim: int = 1, domain = None, space: str = 'Lagrange', degree: int = 1):
+    def __init__(self, dim: int = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
         """
         Reference element for Lagrange FEM.
 

@@ -44,7 +44,7 @@ class Mesh:
             See the Triangle API for available options: https://rufat.be/triangle/API.html
         - `domainID=0` is reserved for the whole domain; subdomains should use positive integers.
         """
-        self.degree = 1 # default polynomial degree (can be upgraded later)
+        self.degree = 1 # default polynomial degree (can be upgraded later by FEMSpace)
         self.dim = dim
         self.domainID = domainID
         self.vertices = np.asarray(vertices)
@@ -121,15 +121,12 @@ class Mesh:
         ValueError
             If the mesh dimension is not 1 or 2.
         """
-        if self.degree == 1:
-            return self.vertices.shape[0]
+        if self.dim == 1:
+            return self.nelements() + 1
+        elif self.dim == 2:
+            return self.vertices.shape[0] - (self.nedges()//self.degree)*(self.degree - 1) - self.nelements()*(self.degree - 1)*(self.degree - 2)//2
         else:
-            if self.dim == 1:
-                return self.nelements() + 1
-            elif self.dim == 2:
-                return self.vertices.shape[0] - (self.nedges()//self.degree)*(self.degree - 1) - self.nelements()*(self.degree - 1)*(self.degree - 2)//2
-            else:
-                raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
 
     def nelements(self) -> int:
         """
@@ -1175,6 +1172,8 @@ class Mesh:
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
         return allmaps
+    
+    
     
     def measures(self) -> np.ndarray:
         """

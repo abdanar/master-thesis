@@ -1,5 +1,5 @@
 import numpy as np
-from mesh import Mesh
+from femspace import FEMSpace
 from refelement import ReferenceElement
 from phyelement import PhysicalElement
 from localint import LocalIntegrator
@@ -8,27 +8,26 @@ from logger import setup_logger
 logger = setup_logger(__name__, level = 'info')
 
 class Assembler:
-    def __init__(self, mesh: Mesh):
-        self.mesh = mesh
-
-    # The total number of basis functions, or total number of global degrees of freedom - including boundary 
-    def ndof(self, degree: int):
-        return self.mesh.nvertices() + self.mesh.nedges()*(degree - 1) + self.mesh.nelements()*(degree - 1)*(degree - 2)//2
+    def __init__(self, femspace: FEMSpace):
+        self.mesh = femspace.mesh
+        self.degree = femspace.degree
+        self.dim = femspace.dim
+        self.domain = femspace.domain
+        self.space = femspace.space
     
     # below functions can be gathered under one function and become significantly faster!
-
-    def global_stiffness_matrix(self, diffusion, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+    def global_stiffness_matrix(self, diffusion, quadrature_order = 2):
 
         # Define global stiffness matrix
-        n = self.ndof(degree)
+        n = self.mesh.nnodes()
         K_global = np.zeros((n, n))
 
-        logger.debug(f"Assembling global stiffness matrix for degree={degree} with {self.mesh.nelements()} elements")
+        logger.debug(f"Assembling global stiffness matrix for degree={self.degree} with {self.mesh.nelements()} elements")
 
-        ref_element = ReferenceElement(domain, space, degree)
-        triangles = self.mesh.upgrade(domain, space, degree).elements
+        ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
+        triangles = self.mesh.elements
         for triangle in triangles:
-            phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
+            phy_element = PhysicalElement(self.mesh.vertices[triangle[:3]], ref_element) # for PhysicalElement, only triangle corners are needed
             lstiffness = LocalIntegrator(phy_element, quadrature_order).local_stiffness_matrix(diffusion)
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
@@ -36,18 +35,18 @@ class Assembler:
         logger.debug("Global stiffness matrix assembly complete")
         return K_global
     
-    def global_convection_matrix(self, convection, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+    def global_convection_matrix(self, convection, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange'):
 
         # Define global convection matrix
-        n = self.ndof(degree)
+        n = self.mesh.nnodes()
         C_global = np.zeros((n, n))
 
-        logger.debug(f"Assembling global convection matrix for degree={degree}")
+        logger.debug(f"Assembling global convection matrix for degree={self.degree}")
 
-        ref_element = ReferenceElement(domain, space, degree)
-        triangles = self.mesh.upgrade(domain, space, degree).elements
+        ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
+        triangles = self.mesh.elements
         for triangle in triangles:
-            phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
+            phy_element = PhysicalElement(self.mesh.vertices[triangle[:3]], ref_element)
             lconvection = LocalIntegrator(phy_element, quadrature_order).local_convection_matrix(convection)
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
@@ -55,18 +54,18 @@ class Assembler:
         logger.debug("Global convection matrix assembly complete")
         return C_global
     
-    def global_mass_matrix(self, reaction, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+    def global_mass_matrix(self, reaction, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange'):
 
         # Define global mass matrix
-        n = self.ndof(degree)
+        n = self.mesh.nnodes()
         M_global = np.zeros((n, n))
 
-        logger.debug(f"Assembling global mass matrix for degree={degree}")
+        logger.debug(f"Assembling global mass matrix for degree={self.degree}")
 
-        ref_element = ReferenceElement(domain, space, degree)
-        triangles = self.mesh.upgrade(domain, space, degree).elements
+        ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
+        triangles = self.mesh.elements
         for triangle in triangles:
-            phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
+            phy_element = PhysicalElement(self.mesh.vertices[triangle[:3]], ref_element)
             lmass = LocalIntegrator(phy_element, quadrature_order).local_mass_matrix(reaction)
             for i_local, i_global in enumerate(triangle):
                 for j_local, j_global in enumerate(triangle):
@@ -75,18 +74,18 @@ class Assembler:
         return M_global
     
     
-    def global_load_vector(self, func, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
+    def global_load_vector(self, func, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange'):
 
         # Define global stiffness matrix
-        n = self.ndof(degree)
+        n = self.mesh.nnodes()
         F_global = np.zeros((n, 1))
 
-        logger.debug(f"Assembling global load vector for degree={degree}")
+        logger.debug(f"Assembling global load vector for degree={self.degree}")
 
-        ref_element = ReferenceElement(domain, space, degree)
-        triangles = self.mesh.upgrade(domain, space, degree).elements
+        ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
+        triangles = self.mesh.elements
         for triangle in triangles:
-            phy_element = PhysicalElement(self.mesh.vertices[triangle], ref_element)
+            phy_element = PhysicalElement(self.mesh.vertices[triangle[:3]], ref_element)
             lload = LocalIntegrator(phy_element, quadrature_order).local_load_vector(func)
             for i_local, i_global in enumerate(triangle):
                 F_global[i_global] += lload[i_local]

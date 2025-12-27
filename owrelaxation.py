@@ -1,5 +1,6 @@
 import numpy as np
 from heat import HeatProblem
+from femspace import FEMSpace
 from mesh import Mesh
 from logger import setup_logger
 
@@ -7,15 +8,15 @@ logger = setup_logger(__name__, level = 'info')
 
 class WaveformRelaxation():
 
-    def __init__(self, mesh: Mesh, n: int, overlap: int, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, degree: int = 1, tstepper: str = 'BackwardEuler', theta: float = 0.5, method: str = 'RAS', maxiter: int = 100, tol: float = 1e-3, criterion: str = 'boundary'):
+    def __init__(self, femspace: FEMSpace, n: int, overlap: int, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'BackwardEuler', theta: float = 0.5, method: str = 'RAS', maxiter: int = 100, tol: float = 1e-3, criterion: str = 'boundary'):
         
         """
         Initialize a Waveform Relaxation solver for time-dependent PDEs over a decomposed domain.
 
         Parameters
         ----------
-        mesh : Mesh
-            The global mesh representing the full computational domain.
+        femspace : FEMSpace
+            The finite element space representing the full computational domain.
         n : int
             Number of subdomains to decompose the mesh into.
         overlap : int
@@ -33,8 +34,6 @@ class WaveformRelaxation():
             Keys are global node indices, values are the corresponding Dirichlet values.
         icond : np.ndarray
             Initial condition vector for the whole domain at time t0.
-        degree : int, default=1
-            Polynomial degree for finite element discretization.
         tstepper : str, default='BackwardEuler'
             Time-stepping method to use, e.g., 'BackwardEuler', 'CrankNicolson', 'Theta'.
         theta : float, default=0.5
@@ -48,18 +47,16 @@ class WaveformRelaxation():
         criterion : str, default='boundary'
             Type of convergence criterion, e.g., 'boundary' for checking subdomain boundary changes.
         """
-        
-        self.mesh = mesh
+        self.femspace = femspace
         self.n = n
         self.overlap = overlap
-        self.subdomains, self.ltog, _ = mesh.decompose(n = n, overlap = overlap)  # list of subdomains of type `Mesh` and dict of local to global mappings
+        self.subdomains, self.ltog, _ = self.femspace.mesh.decompose(n = n, overlap = overlap)  # list of subdomains of type `Mesh` and dict of local to global mappings
         self.f = func
         self.dt = dt
         self.t0 = t0
         self.T = T
         self.dirichlet = dirichlet_bc # Dirichlet boundary condition for the whole domain, for the main problem
         self.initial = icond  # initial condition for the whole domain, for the main problem, Initial condition vector at t0 for all nodes of whole domain
-        self.degree = degree
         self.tstepper = tstepper
         self.theta = theta
         self.method = method
@@ -67,7 +64,7 @@ class WaveformRelaxation():
         self.tol = tol
         self.criterion = criterion # stopping criterion
         self.ntime = int((T - t0)/dt) + 1 # total number of time nodes
-        self.nspace = mesh.nvertices() + mesh.nedges()*(degree - 1) + mesh.nelements()*(degree - 1)*(degree - 2)//2 # total number of space nodes (for whole domain)
+        self.nspace = self.femspace.mesh.nnodes() # total number of space nodes (for whole domain)
     
     def construct_dirichlet_bc(self, domainID: int, maps: dict, data: dict) -> dict:
 
@@ -248,7 +245,7 @@ class WaveformRelaxation():
     def initial_data(self) -> dict:
         idata = {}
         for subdomain in self.subdomains:
-            nspace = subdomain.nvertices() + subdomain.nedges()*(self.degree - 1) + subdomain.nelements()*(self.degree - 1)*(self.degree - 2)//2
+            nspace = subdomain.nnodes()
             idata[subdomain.domainID] = np.zeros((nspace, self.ntime))
         return idata
 
@@ -259,7 +256,7 @@ class WaveformRelaxation():
         logger.info(f"Number of subdomains: {len(self.subdomains)} | max iterations: {self.maxiter} | tolerance: {self.tol:.2e}")
         logger.info("="*80)
 
-        maps = self.mesh.subdomain_mapping(self.subdomains)
+        maps = self.femspace.mesh.subdomain_mapping(self.subdomains)
 
         initial_data = self.initial_data()
 
@@ -271,7 +268,7 @@ class WaveformRelaxation():
                 dirichlet_bc = self.construct_dirichlet_bc(domainID = domainid, maps = maps, data = initial_data)
                 logger.debug(f"The constructed dirichlet boundary conditions for a subdomain {domainid} in iteration {iter + 1}: {dirichlet_bc}")
                 subdomain_heat = HeatProblem(
-                    mesh = subdomain, 
+                    femspace = FEMSpace(mesh = subdomain, domain = self.femspace.domain, space = self.femspace.space, degree = self.femspace.degree),
                     func = self.f, 
                     dt = self.dt, 
                     t0 = self.t0, 

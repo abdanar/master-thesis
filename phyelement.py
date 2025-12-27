@@ -73,7 +73,7 @@ class PhysicalElement:
         if self.ref_element.dim == 1:
             x0, x1 = self.vertices[0], self.vertices[1]
             return x0 + (x1 - x0)*ref_point
-        elif self.ref_element.dim == 2:
+        elif self.ref_element.dim == 2: # here note that even with upgraded elements, vertices are still triangle corners
             vert = self.vertices
             R = np.array([[vert[1, 0] - vert[0, 0], vert[2, 0] - vert[0, 0]],
                         [vert[1, 1] - vert[0, 1], vert[2, 1] - vert[0, 1]]])

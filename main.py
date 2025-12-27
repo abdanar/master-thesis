@@ -4,6 +4,7 @@ import mesh
 import visualize 
 from triangle import triangulate
 from heat import HeatProblem
+from femspace import FEMSpace
 from assembler import Assembler
 from owrelaxation import WaveformRelaxation
 
@@ -11,8 +12,11 @@ from owrelaxation import WaveformRelaxation
 vert = np.array([[0,0],[1,0],[1,1],[0,1]])
 mesh_square = mesh.Mesh(vert, options = 'qa0.01')
 
+# Finite element space of degree 2
+femspace_sq = FEMSpace(mesh_square, degree = 2)
+
 # Visualize the square mesh
-visualizer_sq = visualize.MeshVisualizer(mesh_square)
+visualizer_sq = visualize.MeshVisualizer(femspace_sq.mesh)
 
 # Create time nodes generation
 t0 = 0.0
@@ -30,9 +34,9 @@ def func(x, y, t):
     return (-1 + 5*np.pi**2*(1 - t))*np.sin(np.pi*x)*np.sin(2*np.pi*y) + (2*t + 5*np.pi**2*(1 + t**2))*np.sin(2*np.pi*x)*np.sin(np.pi*y)
 
 # Define a Dirichlet boundary condition dictionary
-vertices = mesh_square.vertices
+vertices = femspace_sq.mesh.vertices
 dirichlet_bc = dict()
-for bnodes in mesh_square.boundary_vertices():
+for bnodes in femspace_sq.mesh.boundary_vertices():
     x, y = vertices[bnodes]
     dirichlet_bc[bnodes] = exact(x, y, time_points)
 
@@ -43,7 +47,7 @@ for i, vertex in enumerate(vertices):
     x, y = vertex
     initial_cond[i] = exact(x, y, t0)
 
-OWR_solver =  WaveformRelaxation(mesh = mesh_square,                                        
+OWR_solver =  WaveformRelaxation(femspace = femspace_sq,                                        
                                 n = 2, 
                                 overlap = 2, 
                                 func = func,
@@ -59,7 +63,7 @@ OWR_solver =  WaveformRelaxation(mesh = mesh_square,
                                 tol = 1e-1)
 
 solution = OWR_solver.solve()
-visualizer_pde = visualize.SolutionVisualizer(mesh_square, solution, dt)
+visualizer_pde = visualize.SolutionVisualizer(femspace_sq.mesh, solution, dt)
 #visualizer_pde.visualize_3d_time()
 visualizer_pde.visualize_3d_time_compare(exact_func = exact)
 

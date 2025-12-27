@@ -82,6 +82,8 @@ class PhysicalElement:
                 return R@ref_point + b
             elif ref_point.shape[1] == 2:
                 return ref_point @ R.T + b[:, np.newaxis].T
+            else:
+                raise ValueError("ref_point has invalid shape for 2D mapping.")
         else:
             raise NotImplementedError(f"reference_to_physical not implemented for dim={self.ref_element.dim}")
         
@@ -97,7 +99,7 @@ class PhysicalElement:
         """
         return self.reference_to_physical(self.ref_element.reference_nodes())
 
-    def physical_to_reference(self, phys_point):
+    def physical_to_reference(self, phys_point: float | np.ndarray) -> float | np.ndarray:
         """
         Map a point or points from the physical element back to the reference element.
 
@@ -129,7 +131,7 @@ class PhysicalElement:
         else:
             raise NotImplementedError(f"physical_to_reference not implemented for dim={self.ref_element.dim}")
 
-    def jacobian(self):
+    def jacobian(self) -> float | np.ndarray:
         """
         Compute the Jacobian of the transformation from the reference element to the physical element.
 
@@ -159,7 +161,7 @@ class PhysicalElement:
         else:
             raise NotImplementedError(f"Jacobian not implemented for dim={self.ref_element.dim}")
         
-    def jacobian_inv(self):
+    def jacobian_inv(self) -> float | np.ndarray:
         """
         Compute the inverse of the Jacobian of the element transformation.
 
@@ -194,8 +196,8 @@ class PhysicalElement:
             If the element dimension is not 1 or 2.
         """
         return self.jacobian() if self.ref_element.dim == 1 else np.linalg.det(self.jacobian())
-    
-    def phi_physical(self, ref_point) -> np.ndarray:
+
+    def phi_physical(self, ref_point: float | np.ndarray) -> np.ndarray:
         """
         Evaluate the shape functions of the element at a given reference point.
 
@@ -219,8 +221,8 @@ class PhysicalElement:
             Access the i-th shape function by `phi_physical[i]`.
         """
         return self.ref_element.phi(ref_point)
-    
-    def grad_phi_physical(self, ref_point) -> np.ndarray:
+
+    def grad_phi_physical(self, ref_point: float | np.ndarray) -> np.ndarray:
         """
         Evaluate the gradients of the shape functions at a given reference point,
         mapped to the physical element.
@@ -242,7 +244,7 @@ class PhysicalElement:
         -------
         np.ndarray
             Gradients of all basis functions at the given reference point.
-            - 1D: shape (nbasis,) 
+            - 1D: shape (nbasis, 1) 
             - 2D: shape (nbasis, 2), each row = [dphi_i/dx, dphi_i/dy]
         """
         if self.ref_element.dim == 1:

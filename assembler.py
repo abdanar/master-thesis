@@ -25,17 +25,20 @@ class Assembler:
         logger.debug(f"Assembling global stiffness matrix for degree={self.degree} with {self.mesh.nelements()} elements")
 
         ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
-        triangles = self.mesh.elements
-        for triangle in triangles:
-            phy_element = PhysicalElement(self.mesh.vertices[triangle[:3]], ref_element) # for PhysicalElement, only triangle corners are needed
+        elements = self.mesh.elements
+        for element in elements:
+            if self.dim == 1:
+                phy_element = PhysicalElement(self.mesh.vertices[element[0], element[-1]], ref_element)
+            else:
+                phy_element = PhysicalElement(self.mesh.vertices[element[:3]], ref_element) 
             lstiffness = LocalIntegrator(phy_element, quadrature_order).local_stiffness_matrix(diffusion)
-            for i_local, i_global in enumerate(triangle):
-                for j_local, j_global in enumerate(triangle):
+            for i_local, i_global in enumerate(element):
+                for j_local, j_global in enumerate(element):
                     K_global[i_global, j_global] += lstiffness[i_local, j_local]
         logger.debug("Global stiffness matrix assembly complete")
         return K_global
     
-    def global_convection_matrix(self, convection, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange'):
+    def global_convection_matrix(self, convection, quadrature_order = 2):
 
         # Define global convection matrix
         n = self.mesh.nnodes()
@@ -44,17 +47,20 @@ class Assembler:
         logger.debug(f"Assembling global convection matrix for degree={self.degree}")
 
         ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
-        triangles = self.mesh.elements
-        for triangle in triangles:
-            phy_element = PhysicalElement(self.mesh.vertices[triangle[:3]], ref_element)
+        elements = self.mesh.elements
+        for element in elements:
+            if self.dim == 1:
+                phy_element = PhysicalElement(self.mesh.vertices[element[0], element[-1]], ref_element)
+            else:
+                phy_element = PhysicalElement(self.mesh.vertices[element[:3]], ref_element)
             lconvection = LocalIntegrator(phy_element, quadrature_order).local_convection_matrix(convection)
-            for i_local, i_global in enumerate(triangle):
-                for j_local, j_global in enumerate(triangle):
+            for i_local, i_global in enumerate(element):
+                for j_local, j_global in enumerate(element):
                     C_global[i_global, j_global] += lconvection[i_local, j_local]
         logger.debug("Global convection matrix assembly complete")
         return C_global
     
-    def global_mass_matrix(self, reaction, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange'):
+    def global_mass_matrix(self, reaction, quadrature_order = 2):
 
         # Define global mass matrix
         n = self.mesh.nnodes()
@@ -63,36 +69,40 @@ class Assembler:
         logger.debug(f"Assembling global mass matrix for degree={self.degree}")
 
         ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
-        triangles = self.mesh.elements
-        for triangle in triangles:
-            phy_element = PhysicalElement(self.mesh.vertices[triangle[:3]], ref_element)
+        elements = self.mesh.elements
+        for element in elements:
+            if self.dim == 1:
+                phy_element = PhysicalElement(self.mesh.vertices[element[0], element[-1]], ref_element)
+            else:
+                phy_element = PhysicalElement(self.mesh.vertices[element[:3]], ref_element)
             lmass = LocalIntegrator(phy_element, quadrature_order).local_mass_matrix(reaction)
-            for i_local, i_global in enumerate(triangle):
-                for j_local, j_global in enumerate(triangle):
+            for i_local, i_global in enumerate(element):
+                for j_local, j_global in enumerate(element):
                     M_global[i_global, j_global] += lmass[i_local, j_local] # if there is any problem, switch the the positions of i_global, j_global!
         logger.debug("Global mass matrix assembly complete")
         return M_global
     
-    
-    def global_load_vector(self, func, quadrature_order = 2, domain: str = 'triangle', space: str = 'Lagrange'):
+    def global_load_vector(self, func, quadrature_order = 2):
 
-        # Define global stiffness matrix
+        # Define global load vector
         n = self.mesh.nnodes()
         F_global = np.zeros((n, 1))
 
         logger.debug(f"Assembling global load vector for degree={self.degree}")
 
         ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
-        triangles = self.mesh.elements
-        for triangle in triangles:
-            phy_element = PhysicalElement(self.mesh.vertices[triangle[:3]], ref_element)
+        elements = self.mesh.elements
+        for element in elements:
+            if self.dim == 1:
+                phy_element = PhysicalElement(self.mesh.vertices[element[0], element[-1]], ref_element)
+            else:
+                phy_element = PhysicalElement(self.mesh.vertices[element[:3]], ref_element)
             lload = LocalIntegrator(phy_element, quadrature_order).local_load_vector(func)
-            for i_local, i_global in enumerate(triangle):
+            for i_local, i_global in enumerate(element):
                 F_global[i_global] += lload[i_local]
         logger.debug("Global load vector assembly complete")
         return F_global
     
-
     # Apply Dirichlet boundary conditions
     def apply_Dirichlet_bc(self, K, rhs, dirichlet_nodes: dict) -> tuple[np.ndarray, np.ndarray]:
 
@@ -127,7 +137,7 @@ class Assembler:
         Notes
         -----
         - This function preserves symmetry of the matrix by zeroing both the row
-        and the column corresponding to the Dirichlet node.
+          and the column corresponding to the Dirichlet node.
         - The original contributions in K and rhs at the Dirichlet nodes are overwritten.
         - This is the standard "strong imposition" method for essential boundary conditions.
         """

@@ -50,7 +50,7 @@ class WaveformRelaxation():
         self.femspace = femspace
         self.n = n
         self.overlap = overlap
-        self.subdomains, self.ltog, _ = self.femspace.mesh.decompose(n = n, overlap = overlap)  # list of subdomains of type `Mesh` and dict of local to global mappings
+        self.subdomains, self.ltog, self.maps, _ = self.femspace.mesh.decompose(n = n, overlap = overlap)  # list of subdomains of type `Mesh` and dict of local to global mappings
         self.f = func
         self.dt = dt
         self.t0 = t0
@@ -67,23 +67,21 @@ class WaveformRelaxation():
         self.nspace = self.femspace.mesh.nnodes() # total number of space nodes (for whole domain)
     
     def construct_dirichlet_bc(self, domainID: int, maps: dict, data: dict) -> dict:
-
         """
-        Construct Dirichlet boundary values for a specific subdomain.
+        Construct Dirichlet boundary values for a specific subdomain, accounting for shared nodes.
 
-        This function computes the Dirichlet boundary values for the nodes of a given 
-        subdomain, taking into account nodes that are shared between multiple subdomains.
-        For nodes shared by multiple subdomains, the boundary value is computed as the 
-        average of the corresponding values. If a subdomain ID in `maps` is 0, the value 
-        is taken from `self.dirichlet`.
+        This function computes the Dirichlet boundary values for the nodes of a given subdomain.
+        For nodes shared by multiple subdomains, the boundary value is computed as the average of 
+        the corresponding values from all subdomains sharing that node. However, if **any** of 
+        the shared entries corresponds to subdomain 0, the Dirichlet value from `self.dirichlet` 
+        is used directly.
 
         Parameters
         ----------
         domainID : int
             The ID of the subdomain for which Dirichlet data is constructed.
         maps : dict
-            A dictionary of subdomain mappings, typically obtained from 
-            `self.mesh.subdomain_mapping(n=self.n, overlap=self.overlap)`. 
+            A dictionary of subdomain mappings, typically obtained from `self.maps`. 
             For a given subdomain `maps[domainID]`, each key is a local boundary node index, 
             and the corresponding value is a list of tuples `(subdomain_id, node_index)` 
             indicating which subdomains share this node and its index in those subdomains.
@@ -97,38 +95,35 @@ class WaveformRelaxation():
         dirichlet_bc : dict
             A dictionary mapping local boundary node indices of `domainID` to their 
             Dirichlet boundary values. Shared nodes are assigned the average value across 
-            the corresponding subdomains. Nodes associated with subdomain 0 use values 
-            from `self.dirichlet`.
+            the corresponding subdomains unless a Dirichlet entry from subdomain 0 exists, 
+            which takes precedence.
 
         Notes
         -----
         - Assumes that `data` contains the solution for all relevant subdomains and time steps.
-        - Shared nodes are averaged over all subdomains listed in `maps`.
-        - Subdomain 0 is treated as a special case using `self.dirichlet`.
+        - Nodes shared among multiple subdomains are normally averaged unless subdomain 0 is present.
+        - Subdomain 0 is treated as a special case: its Dirichlet values override any averages.
         """
-        # Not correct!
         dirichlet_bc = {}
         for dindex, dlist in maps[domainID].items():
             share = len(dlist) # number of subdomains that shares dindex node
-            if share > 1:
+            # Check if any entry uses Dirichlet value
+            dirichlet_entry = next(((i, j) for (i, j) in dlist if i == 0), None)
+            if dirichlet_entry is not None:
+                # If any i==0, assign Dirichlet value directly
+                _, j = dirichlet_entry
+                dirichlet_bc[dindex] = self.dirichlet[j]
+            elif share > 1:
                 # Average over all subdomains sharing this node
-                val = 0
-                for (i, j) in dlist:
-                    if i == 0:
-                        val += (1/share)*self.dirichlet[j]
-                    else:
-                        val += (1/share)*data[i][j, :]
+                val = sum(data[i][j, :] for (i, j) in dlist) / share
                 dirichlet_bc[dindex] = val
             else:
+                # Only one subdomain, take its value
                 i, j = dlist[0]
-                if i == 0:
-                    dirichlet_bc[dindex] = self.dirichlet[j]
-                else:
-                    dirichlet_bc[dindex] = data[i][j, :]
+                dirichlet_bc[dindex] = data[i][j, :]
         return dirichlet_bc
     
     def construct_initial(self, domainID: int) -> np.ndarray:
-
         """
         Extract the initial condition corresponding to a specific subdomain.
 
@@ -144,11 +139,9 @@ class WaveformRelaxation():
             in the specified subdomain. The mapping from global to local indices
             is handled via `self.ltog[domainID]`.
         """
-
         return self.initial[self.ltog[domainID]]
     
     def combine(self, data: dict) -> np.ndarray:
-
         """
         Assemble a global solution from subdomain solutions.
 
@@ -212,7 +205,6 @@ class WaveformRelaxation():
         return global_solution
     
     def boundary_criterion(self, data_old: dict, data_new: dict) -> float:
-
         """
         Evaluate the convergence criterion on subdomain boundaries.
 
@@ -245,8 +237,7 @@ class WaveformRelaxation():
     def initial_data(self) -> dict:
         idata = {}
         for subdomain in self.subdomains:
-            nspace = subdomain.nnodes()
-            idata[subdomain.domainID] = np.zeros((nspace, self.ntime))
+            idata[subdomain.domainID] = np.zeros((subdomain.nnodes(), self.ntime))
         return idata
 
     def solve(self) -> np.ndarray:
@@ -256,8 +247,6 @@ class WaveformRelaxation():
         logger.info(f"Number of subdomains: {len(self.subdomains)} | max iterations: {self.maxiter} | tolerance: {self.tol:.2e}")
         logger.info("="*80)
 
-        maps = self.femspace.mesh.subdomain_mapping(self.subdomains)
-
         initial_data = self.initial_data()
 
         for iter in range(self.maxiter):
@@ -265,7 +254,7 @@ class WaveformRelaxation():
             for subdomain in self.subdomains:
                 domainid = subdomain.domainID
                 initial_cond = self.construct_initial(domainid)
-                dirichlet_bc = self.construct_dirichlet_bc(domainID = domainid, maps = maps, data = initial_data)
+                dirichlet_bc = self.construct_dirichlet_bc(domainID = domainid, maps = self.maps, data = initial_data)
                 logger.debug(f"The constructed dirichlet boundary conditions for a subdomain {domainid} in iteration {iter + 1}: {dirichlet_bc}")
                 subdomain_heat = HeatProblem(
                     femspace = FEMSpace(mesh = subdomain, domain = self.femspace.domain, space = self.femspace.space, degree = self.femspace.degree),

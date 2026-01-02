@@ -62,7 +62,6 @@ class HeatProblem:
         self.ntime = int((T - t0)/dt) + 1 # total number of time nodes (including boundaries)
 
     def assemble_space(self):
-
         """
         Assemble space-dependent matrices (M, A) using the assembler.
         Returns:

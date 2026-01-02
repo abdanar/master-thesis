@@ -251,7 +251,6 @@ class Mesh:
                 ]
         edges(element) -> {(0, 1), (0, 12), (0, 17), (1, 12), (1, 14), (2, 15), (2, 16), (2, 17), (12, 13), (14, 15), (16, 17)}
         """
-
         if self.dim == 1:
             edges = set()
             for edge in zip(element[:-1], element[1:]):
@@ -572,7 +571,7 @@ class Mesh:
             Each array has shape (dim,).
         """
         bdvertices = self.boundary_vertices()
-        return [self.vertices[i] for i in sorted(bdvertices)]
+        return [self.vertices[i] for i in bdvertices] # there was sorting here before sorted(bdvertices)!
 
     def boundary_elements(self) -> set:
         """
@@ -672,170 +671,6 @@ class Mesh:
         """
         return bool(set(element) & self.boundary_vertices())
 
-    def upgrade(self, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1) -> "Mesh":
-        """
-        Upgrade the mesh for higher-degree Lagrange finite elements and return a new Mesh object.
-        
-        The method supports both 1D (interval) and 2D (triangular) meshes.
-
-        Parameters
-        ----------
-        domain : str, optional
-            The type of reference element domain. Must be:
-            - `'interval'` for 1D meshes
-            - `'triangle'` for 2D meshes
-            Default is `'triangle'`.
-        space : str, optional
-            The finite element space type. Default is 'Lagrange'.
-        degree : int, optional
-            The polynomial degree of the Lagrange shape functions. 
-            Must be >= 1. Default is 1.
-
-        Returns
-        -------
-        Mesh
-            A new Mesh instance representing the upgraded higher-order mesh.
-            The returned mesh has updated vertices and element connectivity,
-            and the attribute `mesh.degree` is set accordingly.
-
-        Notes
-        -----
-        - If `degree == 1`, no upgrade is performed and a shallow copy of the
-            original mesh is returned.
-        - Node ordering is fixed and consistent:
-            **1D (interval):**
-                [left vertex, interior nodes (left → right), right vertex]
-            **2D (triangle):**
-                [v0, v1, v2,
-                edge nodes on (0,1),
-                edge nodes on (1,2),
-                edge nodes on (2,0),
-                interior nodes]
-        - Edge node indices start after the original vertices, i.e., at `self.nvertices()`.
-        - Interior node indices start after all original vertices and edge nodes, 
-            i.e., at `self.nvertices() + self.nedges() * (degree - 1)`.
-        - This function uses dictionaries to track unique edge and interior nodes 
-            to avoid duplicate nodes when multiple elements share edges.
-        
-        Examples
-        --------
-        **1D Example:**
-
-        Original 1D mesh:
-            vertices = [0.0, 1.0, 2.0]
-            elements = [[0, 1], [1, 2]]
-
-        Using degree=3 Lagrange elements adds 2 interior nodes per segment:
-
-            Segment [0,1] → interior nodes at 0.333, 0.667
-            Segment [1,2] → interior nodes at 1.333, 1.667
-
-        Updated vertices:
-            [0.0, 1.0, 2.0, 0.333, 0.667, 1.333, 1.667]
-
-        Updated elements:
-            [[0, 3, 4, 1],
-            [1, 5, 6, 2]]
-
-        **2D Example (triangle):**
-
-        Suppose we have a 2D mesh with two triangles sharing an edge:
-
-            self.vertices = np.array([
-                [0.0, 0.0],  # vertex 0
-                [1.0, 0.0],  # vertex 1
-                [0.0, 1.0],  # vertex 2
-                [1.0, 1.0]   # vertex 3
-            ])
-
-            self.elements = np.array([
-                [0, 1, 2],  # triangle 0
-                [1, 3, 2]   # triangle 1
-            ])
-
-        For `degree = 2` (quadratic Lagrange elements):
-
-        - Each triangle gets **3 edge nodes** (midpoints of edges)  
-        - Triangle 0 edges: (0,1), (1,2), (2,0) → 3 edge nodes  
-        - Triangle 1 edges: (1,3), (3,2), (2,1) → note edge (1,2) already has a node  
-        - No interior nodes for degree 2  
-
-        Node ordering for each element:
-
-            updated_elements[0] = [0, 1, 2, 4, 5, 6]  # original vertices + edge nodes
-            updated_elements[1] = [1, 3, 2, 7, 8, 4]  # edge node 4 reused from triangle 0
-
-        - `updated_vertices` array contains original 4 vertices plus new edge nodes.  
-        - Interior nodes (if degree > 2) would be appended after all edge nodes.
-        """
-        if degree == 1:
-            base = Mesh(
-                vertices = self.vertices.copy(),
-                segments = self.segments,
-                holes = self.holes,
-                domainID = self.domainID,
-                dim = self.dim,
-                options = self.options)
-            base.degree = 1
-            return base
-        
-        if self.dim == 1 or domain == 'interval':
-            updated_vertices = list(self.vertices)
-            updated_elements = np.zeros((self.nelements(), degree + 1), dtype = int)
-            next_index = self.nvertices()
-            for i, edge in enumerate(self.elements):
-                a, b = self.vertices[edge[0]], self.vertices[edge[1]]
-                interior_nodes = np.linspace(a, b, degree + 1)[1:-1]
-                interior_indices = []
-                for node in interior_nodes:
-                    updated_vertices.append(node)
-                    interior_indices.append(next_index)
-                    next_index += 1
-                updated_elements[i] = [edge[0]] + interior_indices + [edge[1]]
-            updated_vertices = np.array(updated_vertices).reshape(-1)
-        elif self.dim == 2 and domain == 'triangle':
-            nel = self.nelements()
-            nvert = self.nvertices()
-            nedg = self.nedges()//self.degree # <- number of geometric edges
-            pedge = 3*(degree - 1) # number of edge nodes per triangle
-
-            updated_elements = np.zeros((nel, 3 + 3*(degree - 1) + (degree - 1)*(degree - 2)//2), dtype = int)
-            updated_elements[:, :3] = self.elements
-            updated_vertices = np.zeros((nvert + nedg*(degree - 1) + nel*(degree - 1)*(degree - 2)//2, 2))
-            updated_vertices[:nvert, :] = self.vertices 
-
-            edge_nodes_dict = defaultdict(int)
-            interior_nodes_dict = defaultdict(int)
-
-            edge_count = nvert
-            interior_count = nvert + nedg*(degree - 1)
-            for i, element in enumerate(self.elements):
-                nodes = PhysicalElement(vertices = self.vertices[element], ref_element = ReferenceElement(self.dim, domain, space, degree)).physical_reference_nodes()
-                edge_nodes = nodes[3: 3 + pedge, :]
-                interior_nodes = nodes[3 + pedge:, :]
-                for j, enode in enumerate(edge_nodes):
-                    key_node = tuple(enode)
-                    if key_node not in edge_nodes_dict:
-                        edge_nodes_dict[key_node] = edge_count
-                        updated_vertices[edge_count] = enode
-                        edge_count += 1
-                    updated_elements[i, j + 3] = edge_nodes_dict[key_node]
-                for k, inode in enumerate(interior_nodes):
-                    key_node = tuple(inode)
-                    if key_node not in interior_nodes_dict:
-                        interior_nodes_dict[key_node] = interior_count
-                        updated_vertices[interior_count] = inode
-                        interior_count += 1
-                    updated_elements[i, k + pedge + 3] = interior_nodes_dict[key_node]
-        else:
-            if self.dim not in [1, 2]:
-                raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-            else:
-                raise ValueError(f"Unsupported domain type: {domain}. Use 'interval' for 1D and 'triangle' for 2D meshes.")
-        upgraded_mesh = Mesh(vertices = updated_vertices, elements = updated_elements, dim = self.dim, domainID = self.domainID, options = self.options)
-        upgraded_mesh.degree = degree
-        return upgraded_mesh
-
     def decompose(self, n: int, overlap: int = 0, edge_weights = None): # Element-based partitioning
         """
         Decompose the mesh into `n` subdomains using PyMetis, with optional overlapping layers.
@@ -888,6 +723,117 @@ class Mesh:
         local_to_global_mappings : dict
             Mapping from subdomain ID -> global vertex indices used in that subdomain.
             {subdomain ID: np.array([sorted global indices for whole domain correspoding to the subdomain ID])}
+        subdomain_maps : dict
+            Mapping of boundary vertices across subdomains and the whole domain.
+
+            For each subdomain `s` (with ID `s = 1, ..., n`), this dictionary stores
+            a mapping from *local boundary vertex indices* in subdomain `s`
+            to the corresponding location of the same vertex in another domain
+            (either another subdomain or the whole domain).
+
+            Structure
+            ---------
+            subdomain_maps[s] : dict
+
+                Keys
+                ----
+                local_index_s : int
+                    Local index of a boundary vertex in subdomain `s`.
+
+                Values
+                ------
+                (t, index_t) : tuple of int
+                    - `t = 0` indicates that the vertex lies on the boundary of
+                      the whole (non-decomposed) domain.
+                    - `t > 0` indicates another subdomain ID sharing the same vertex.
+                    - `index_t` is the local index of the vertex in domain `t`
+                      (or the global vertex index if `t = 0`).
+
+            Interpretation
+            --------------
+            - Each entry represents a **single correspondence** for a boundary
+              vertex of subdomain `s`.
+            - If a boundary vertex belongs to the whole domain boundary,
+              it is mapped to `(0, global_index)`.
+            - If it is shared with another subdomain `t`, it is mapped to
+              `(t, local_index_in_t)`.
+            - If a vertex is shared with multiple subdomains, the *last processed*
+              subdomain overwrites earlier entries.
+
+            Notes
+            -----
+            - Only boundary vertices of subdomains are included.
+            - Boundary detection for subdomains uses `restricted=False`, so
+              higher-order edge nodes may appear.
+            - The mapping is **not symmetric**: information is stored independently
+              for each subdomain.
+            - This structure is suitable for:
+                - subdomain coupling,
+                - interface communication,
+                - boundary-condition transfer.
+
+            1D Example
+            ----------
+            Suppose the domain [0, 1] is divided into 3 subdomains:
+
+            Whole domain nodes: [0, 0.25, 0.5, 0.75, 1.0]
+
+            Subdomain 1 (ID=1): nodes [0, 0.25, 0.5]       # local indices: 0,1,2
+            Subdomain 2 (ID=2): nodes [0.25, 0.5, 0.75]    # local indices: 0,1,2
+            Subdomain 3 (ID=3): nodes [0.5, 0.75, 1.0]     # local indices: 0,1,2
+
+            Boundary nodes of subdomains (local indices):
+
+            - Subdomain 1: [0, 0.5] → local indices [0,2]
+            - Subdomain 2: [0.25, 0.75] → local indices [0,2]
+            - Subdomain 3: [0.5, 1.0] → local indices [0,2]
+
+            Whole domain boundary nodes: [0, 1] → global indices [0, 4]
+
+            Resulting mapping allmaps (local indices):
+
+            allmaps = {
+                1: {
+                    0: [(0, 0)],         # node 0 (local 0) is boundary of whole domain (global 0)
+                    2: [(2, 0), (3, 0)]  # node 0.5 (local 2) shared with subdomain 2 (local 0) and 3 (local 0)
+                },
+                2: {
+                    0: [(1, 1)],         # node 0.25 (local 0) shared with subdomain 1 (local 1)
+                    2: [(3, 1)]          # node 0.75 (local 2) shared with subdomain 3 (local 1)
+                },
+                3: {
+                    0: [(1, 2), (2, 1)], # node 0.5 (local 0) shared with subdomain 1 (local 2) and 2 (local 1)
+                    2: [(0, 4)]          # node 1.0 (local 2) is boundary of whole domain (global 4)
+                }
+            }
+            
+            2D Example
+            ----------
+            Suppose the domain is decomposed into subdomains with IDs 1, 2, and 3:
+
+            - A boundary vertex of subdomain 1 at local index 5 is shared with subdomain 2
+            at index 3 and subdomain 3 at index 7, and is also a boundary node of the whole domain
+            at index 10:
+
+                allmaps[1][5] = [
+                    (0, 10),  # belongs to the whole domain
+                    (2, 3),
+                    (3, 7)
+                ]
+
+            - Another boundary vertex of subdomain 1 at local index 8 is shared only with
+            subdomain 3 at index 4 and also belongs to the whole domain at index 12:
+
+                allmaps[1][8] = [
+                    (0, 12),
+                    (3, 4)
+                ]
+
+            - A boundary vertex that appears **only on the whole domain** and not in any subdomain:
+
+                allmaps[subdomainID_i][boundary_index_in_i] = [
+                    (0, g_index)
+                ]
         membership : np.ndarray of int
             Array mapping each triangle in the original mesh to its subdomain index.
             (length equals number of elements in the original mesh).
@@ -895,7 +841,7 @@ class Mesh:
         Example
         -------
         >>> mesh = Mesh(vertices=vertices, elements=elements)
-        >>> subdomains, membership = mesh.decompose(n=4, edge_weights=None)
+        >>> subdomains, _, _, membership = mesh.decompose(n=4, edge_weights=None)
         >>> len(subdomains)  # 4 subdomain Mesh objects
         4
         >>> subdomains[0].domainID  # domain ID of first subdomain
@@ -927,20 +873,45 @@ class Mesh:
         every triangle in the original mesh to its subdomain, so you can use it
         as a color array to show different subdomains in a plot. (non-overlapping version only)
         """
-        def local_boundary_vertices(elements) -> set:
+        def local_boundary_vertices(elements, restricted: bool = True) -> set:
             """
             Extract boundary vertices from a collection of mesh elements.
 
-            The definition of boundary vertices depends on the spatial dimension:
+            A vertex is considered a boundary vertex if it belongs to an edge
+            (in 1D or 2D) that appears exactly once within the given collection
+            of elements.
 
-            - In 1D, elements are intervals. A vertex is a boundary vertex if it
-            appears exactly once as an endpoint among all intervals.
-            - In 2D, elements are triangles. Boundary vertices are those belonging
-            to edges that appear exactly once among all triangles.
+            The behavior depends on the spatial dimension and on the flag
+            ``restricted``.
 
-            For higher-order finite elements, only the topological vertices
-            (endpoints in 1D, first three vertices in 2D) are used. Interior nodes
-            do not affect the boundary detection.
+            Dimension-dependent definition
+            -------------------------------
+            - 1D (interval mesh):
+            Elements are intervals.
+            Boundary vertices are vertices that appear exactly once as endpoints
+            of all considered intervals.
+
+            - 2D (triangular mesh):
+            Elements are triangles.
+            Boundary vertices are vertices belonging to edges that occur exactly
+            once among all triangles.
+
+            Effect of ``restricted``
+            ------------------------
+            - ``restricted=True`` (default):
+            Only *topological vertices* are used.
+            - In 1D: only the first and last vertex of each element are considered.
+            - In 2D: only the first three entries of each element (triangle vertices)
+                are considered.
+            Higher-order nodes (edge or interior nodes) are ignored.
+
+            - ``restricted=False``:
+            Higher-order elements are taken into account.
+            - In 1D: all consecutive vertex pairs along each element are treated
+                as edges.
+            - In 2D: edges are reconstructed using both vertices and edge nodes,
+                and boundary detection is performed on these refined edges.
+            The returned set may therefore include higher-order edge nodes.
 
             Parameters
             ----------
@@ -948,43 +919,115 @@ class Mesh:
                 Collection of mesh elements.
                 - In 1D, each element must contain at least two vertex indices.
                 - In 2D, each element must contain at least three vertex indices.
-                Any additional entries (higher-order nodes) are ignored.
+                For higher-order elements, additional entries are interpreted
+                according to the polynomial degree when ``restricted=False``.
+
+            restricted : bool, optional
+                If True, boundary detection is performed using only topological
+                vertices. If False, higher-order edge nodes are included.
+                Default is True.
 
             Returns
             -------
             set
-                Set of vertex indices that lie on the boundary of the element
-                collection.
+                Set of vertex indices that lie on the boundary of the given
+                element collection.
 
             Raises
             ------
             ValueError
-                If the mesh dimension is not supported.
+                If the mesh dimension is not supported (only 1D and 2D are allowed).
             """
-            if self.dim == 1:
-                counts = {}
-                for interval in elements:
-                    a, b = interval[0], interval[-1]
-                    counts[a] = counts.get(a, 0) + 1
-                    counts[b] = counts.get(b, 0) + 1
-                return set(v for v, c in counts.items() if c == 1)
-            elif self.dim == 2:
-                bdedges = set()
-                for triangle in elements:
-                    a, b, c = triangle[:3]
-                    triedges = [(min(a, b), max(a, b)), (min(b, c), max(b, c)), (min(c, a), max(c, a))]
-                    for edge in triedges:
-                        if edge in bdedges:
-                            bdedges.discard(edge)
-                        else:
-                            bdedges.add(edge)
-                return set(it.chain.from_iterable(bdedges))
+            if restricted:
+                if self.dim == 1:
+                    counts = {}
+                    for interval in elements:
+                        a, b = interval[0], interval[-1]
+                        counts[a] = counts.get(a, 0) + 1
+                        counts[b] = counts.get(b, 0) + 1
+                    return set(v for v, c in counts.items() if c == 1)
+                elif self.dim == 2:
+                    bdedges = set()
+                    for triangle in elements:
+                        a, b, c = triangle[:3]
+                        triedges = [(min(a, b), max(a, b)), (min(b, c), max(b, c)), (min(c, a), max(c, a))]
+                        for edge in triedges:
+                            if edge in bdedges:
+                                bdedges.discard(edge)
+                            else:
+                                bdedges.add(edge)
+                    return set(it.chain.from_iterable(bdedges))
+                else:
+                    raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
             else:
-                raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+                bdedges = set()
+                if self.dim == 1:
+                    for element in elements:
+                        for edge in zip(element[:-1], element[1:]):
+                            if edge in bdedges:
+                                bdedges.discard(tuple(edge))
+                            else:
+                                bdedges.add(tuple(edge))
+                    return set(it.chain.from_iterable(bdedges))
+                elif self.dim == 2:
+                        for element in elements:
+                            a, b, c = element[:3]
+                            # extract edge nodes
+                            edge_ab = element[3 : 3 + self.degree - 1]
+                            edge_bc = element[3 + self.degree - 1 : 3 + 2*(self.degree - 1)]
+                            edge_ca = element[3 + 2*(self.degree - 1) : 3 + 3*(self.degree - 1)]
+                            # sequences along edges
+                            seq_ab = [a] + list(edge_ab) + [b]
+                            seq_bc = [b] + list(edge_bc) + [c]
+                            seq_ca = [c] + list(edge_ca) + [a]
+                            # helper to add consecutive pairs
+                            edges = set()
+                            def edge_pairs(seq):
+                                for i in range(len(seq)-1):
+                                    edges.add(tuple(sorted((seq[i], seq[i+1]))))
+                            for seq in [seq_ab, seq_bc, seq_ca]:
+                                edge_pairs(seq)
+                            
+                            for edge in edges:
+                                if edge in bdedges:
+                                    bdedges.discard(edge)
+                                else:
+                                    bdedges.add(edge)
+                        return set(it.chain.from_iterable(bdedges))
+                else:
+                    raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+                
+        def nodes(elements):
+            """
+            Return the unique node indices appearing in a collection of elements.
+
+            This function concatenates all element connectivity arrays and extracts
+            the set of unique node indices used by the given elements. The result
+            is returned as a sorted NumPy array.
+
+            Parameters
+            ----------
+            elements : iterable of array-like
+                Collection of mesh elements, where each element is an array-like
+                object containing node indices.
+
+            Returns
+            -------
+            numpy.ndarray
+                One-dimensional array of unique node indices appearing in
+                ``elements``, sorted in ascending order.
+
+            Notes
+            -----
+            This function does not distinguish between vertex nodes and
+            higher-order nodes; all node indices present in the element
+            connectivity are included.
+            """
+            return np.unique(np.concatenate(elements))
 
         # Create adjacency list and partition using PyMetis
         adjdict = self.adjacency()
-        adjlist = [list(adjdict[i]) for i in range(len(self.elements))]
+        adjlist = [sorted(list(adjdict[i])) for i in range(len(self.elements))]
         _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
 
         # Assign elements to subdomains
@@ -1008,172 +1051,160 @@ class Mesh:
                                 selements.append(element)
                                 new_elements[sindex].add(element_tuple)
 
+        boundary_vertices = dict() # domainID: {boundary vertices of the domain with domainID in domainID = 0 (whole mesh) global indexing}
+        boundary_vertices[0] = self.boundary_vertices() # whole boundary vertices
+        for k in range(1, n + 1):
+            boundary_vertices[k] = local_boundary_vertices(subdomains_elements[k], restricted = False)
+
         # Build local meshes: extract subdomain DOFs, define global <--> local index mapping, and relabel elements to local numbering.
         subdomains = []
+        global_to_local_mappings = {}
         local_to_global_mappings = {}
         for j in range(1, n + 1):
             elements = subdomains_elements[j]
-            global_indices = np.unique(np.concatenate(elements)) # This is exactly map from localdof to global dof s.t. local_indices = np.arange(0, len(global_indices), dtype=int)
+            global_indices = nodes(elements) # This is exactly map from localdof to global dof s.t. local_indices = np.arange(0, len(global_indices), dtype=int)
             mapping = {g: l for l, g in enumerate(global_indices)} # This is exactly map from global dof to localdof 
             local_to_global_mappings[j] = global_indices 
+            global_to_local_mappings[j] = mapping
             vertices = self.vertices[global_indices]
             elements = np.array([[mapping[v] for v in element] for element in elements], dtype = int)
             local_mesh = Mesh(vertices = vertices, elements = elements, dim = self.dim, domainID = j, options = self.options)
             local_mesh.degree = self.degree
             subdomains.append(local_mesh)
 
-        return subdomains, local_to_global_mappings, np.array(membership, dtype = int)
+        subdomain_maps = dict()
+        for s in range(1, n + 1):
+            maps = defaultdict(list)
+            wintersection = boundary_vertices[0] & boundary_vertices[s]
+            for w in wintersection: # This is for the boundary nodes of the subdomain that shares with whole boundary nodes
+                maps[global_to_local_mappings[s][w]].append((0, w))
+            for t in range(1, n + 1):
+                if t == s:
+                    continue
+                aintersection = boundary_vertices[s] & set(nodes(subdomains_elements[t]))
+                for a in aintersection:
+                    maps[global_to_local_mappings[s][a]].append((t, global_to_local_mappings[t][a]))
+            subdomain_maps[s] = maps
 
-    def subdomain_mapping(self, subdomains: list) -> dict:
+        # Note that returned `membership` array is for non-overlapping domain decomposition!
+        return subdomains, local_to_global_mappings, subdomain_maps, np.array(membership, dtype = int)
 
+    def is_in_interval(self, point: float, interval: np.ndarray, tol: float = 1e-12) -> bool:
         """
-        Construct a mapping of boundary vertices (vertices in 2D, points in 1D) across all subdomains
-        in a decomposed domain.
-
-        For each subdomain, this function creates a dictionary mapping its boundary vertices
-        to all subdomains (and optionally the whole domain) that contain the same vertex.
-            - A boundary vertex may be shared by multiple subdomains.
-            - If a vertex is also on the boundary of the whole (non-decomposed) domain, a tuple
-              with first entry 0 is included to indicate this.
+        Check if a point lies inside a 1D interval (including endpoints).
 
         Parameters
         ----------
-        subdomains : list of Mesh
-            List of `Mesh` objects representing the subdomains of the decomposed domain.
+        point : float
+            The coordinate of the point.
+        interval : array-like, shape (2,)
+            Coordinates of the interval endpoints [x0, x1].
+        tol : float
+            Numerical tolerance.
 
         Returns
         -------
-        allmaps : dict
-            Dictionary for **all subdomains**. For each subdomain `i`, the mapping is:
+        bool
+            True if point is inside the interval or on its boundary.
+        """
+        x0, x1 = interval
+        return x0 - tol <= point <= x1 + tol
 
-            - Keys: local boundary indices in subdomain `i`.
-            - Values: lists of tuples `(j, g_index)` where:
-                - `j` is 0 if the vertex belongs to the whole domain, or a subdomain ID for decomposed subdomains.
-                - `g_index` is the local index of this boundary vertex in subdomain `j` (or in the whole domain if `j = 0`).
+    def is_in_triangle(self, point: np.ndarray, triangle: np.ndarray, tol: float = 1e-12) -> bool:
+        """
+        Check if a point lies inside a triangle (including edges and vertices)
+        using barycentric coordinates.
 
-            Format example:
-
-                allmaps[subdomainID_i][boundary_index_in_i] = [
-                    (j1, local_index_in_j1),
-                    (j2, local_index_in_j2),
-                    ...,
-                    (0, index_in_whole_domain)  # included if the vertex also belongs to the whole domain
-                ]
-
-        1D Example
+        Parameters
         ----------
+        point : array-like, shape (2,)
+            The (x, y) coordinates of the point.
+        triangle : array-like, shape (3, 2)
+            Triangle vertices.
+        tol : float
+            Numerical tolerance.
 
-        Suppose the domain [0, 1] is divided into 3 subdomains:
+        Returns
+        -------
+        bool
+            True if point is inside the triangle or on its boundary.
+        """
+        a, b, c = triangle
 
-        Whole domain nodes: [0, 0.25, 0.5, 0.75, 1.0]
+        v0 = b - a
+        v1 = c - a
+        v2 = point - a
 
-        Subdomain 1 (ID=1): nodes [0, 0.25, 0.5]       # local indices: 0,1,2
-        Subdomain 2 (ID=2): nodes [0.25, 0.5, 0.75]    # local indices: 0,1,2
-        Subdomain 3 (ID=3): nodes [0.5, 0.75, 1.0]     # local indices: 0,1,2
+        dot00 = np.dot(v0, v0)
+        dot01 = np.dot(v0, v1)
+        dot02 = np.dot(v0, v2)
+        dot11 = np.dot(v1, v1)
+        dot12 = np.dot(v1, v2)
 
-        Boundary nodes of subdomains (local indices):
+        denom = dot00 * dot11 - dot01 * dot01
+        if abs(denom) < tol:
+            # Degenerate triangle
+            return False
 
-        - Subdomain 1: [0, 0.5] → local indices [0,2]
-        - Subdomain 2: [0.25, 0.75] → local indices [0,2]
-        - Subdomain 3: [0.5, 1.0] → local indices [0,2]
+        invDenom = 1.0 / denom
+        u = (dot11 * dot02 - dot01 * dot12) * invDenom
+        v = (dot00 * dot12 - dot01 * dot02) * invDenom
 
-        Whole domain boundary nodes: [0, 1] → global indices [0, 4]
+        return (u >= -tol and v >= -tol and u + v <= 1.0 + tol)
+    
+    def locate_triangle(self, point: np.ndarray) -> int | None:
+        """
+        Return the index of the triangle that contains the given point.
 
-        Resulting mapping allmaps (local indices):
-
-        allmaps = {
-            1: {
-                0: [(0, 0)],         # node 0 (local 0) is boundary of whole domain (global 0)
-                2: [(2, 0), (3, 0)]  # node 0.5 (local 2) shared with subdomain 2 (local 0) and 3 (local 0)
-            },
-            2: {
-                0: [(1, 1)],         # node 0.25 (local 0) shared with subdomain 1 (local 1)
-                2: [(3, 1)]          # node 0.75 (local 2) shared with subdomain 3 (local 1)
-            },
-            3: {
-                0: [(1, 2), (2, 1)], # node 0.5 (local 0) shared with subdomain 1 (local 2) and 2 (local 1)
-                2: [(0, 4)]          # node 1.0 (local 2) is boundary of whole domain (global 4)
-            }
-        }
-        
-        2D Example
+        Parameters
         ----------
-        Suppose the domain is decomposed into subdomains with IDs 1, 2, and 3:
+        point : array-like
+            The (x, y) coordinates of the point.
 
-        - A boundary vertex of subdomain 1 at local index 5 is shared with subdomain 2
-        at index 3 and subdomain 3 at index 7, and is also a boundary node of the whole domain
-        at index 10:
-
-            allmaps[1][5] = [
-                (0, 10),  # belongs to the whole domain
-                (2, 3),
-                (3, 7)
-            ]
-
-        - Another boundary vertex of subdomain 1 at local index 8 is shared only with
-        subdomain 3 at index 4 and also belongs to the whole domain at index 12:
-
-            allmaps[1][8] = [
-                (0, 12),
-                (3, 4)
-            ]
-
-        - A boundary vertex that appears **only on the whole domain** and not in any subdomain:
-
-            allmaps[subdomainID_i][boundary_index_in_i] = [
-                (0, g_index)
-            ]
+        Returns
+        -------
+        int or None
+            The index of a triangle that contains the point.
+            If the point is outside the mesh, return None.
 
         Notes
-        -----  
-        - Each subdomain stores, for each boundary vertex, a list of all other subdomains
-          (and possibly the whole domain) containing the same vertex, along with their
-          corresponding local indices.
+        -----
+        - Triangle indices refer to the ordering of elements in ``self.elements``.
+          In particular, if the function returns index ``i``, the triangle containing
+          the point is ``self.elements[i]``.
+        - If the point lies strictly inside an element, that element is returned.
+        - If the point lies on a shared edge or at a vertex, it belongs to multiple
+          elements; in this case, one of the adjacent elements is returned
+          (the first encountered in the element loop).
+        - This behavior is sufficient for continuous FEM, where finite element
+          functions are single-valued across element interfaces.
         """
-        allmaps = {}
-
-        # Precompute boundary nodes of the whole domain
-        whole_boundary_nodes = self.boundary_nodes()
-
-        if self.dim == 1:
-            whole_vertices = self.vertices
-            for subdomain in subdomains:
-                subdomain_maps = {}
-                boundary_indices = subdomain.boundary_vertices()
-                for bindex in boundary_indices:
-                    boundary_node = subdomain.vertices[bindex]
-                    subdomain_maps[bindex] = []
-                    if boundary_node in whole_boundary_nodes:
-                        position = np.where(whole_vertices == boundary_node)[0][0]
-                        subdomain_maps[bindex].append((0, position))
-                    for sdomain in subdomains:
-                        mask = sdomain.vertices == boundary_node
-                        if np.any(mask):
-                            position = np.where(mask)[0][0]
-                            subdomain_maps[bindex].append((sdomain.domainID, position))
-                allmaps[subdomain.domainID] = subdomain_maps
-        elif self.dim == 2:
-            whole_vertices_view = self.vertices.view([('', self.vertices.dtype)]*self.vertices.shape[1])
-            for subdomain in subdomains:
-                subdomain_maps = {}
-                boundary_indices = subdomain.boundary_vertices() # local boundary indices
-                for bindex in boundary_indices:
-                    boundary_node = subdomain.vertices[bindex]
-                    subdomain_maps[bindex] = [] # initialize list for this boundary index
-                    if any(np.all(boundary_node == v) for v in whole_boundary_nodes): # check if node is on whole domain boundary
-                        position = np.where(whole_vertices_view == boundary_node.view([('', boundary_node.dtype)]*boundary_node.shape[0]))[0][0]
-                        subdomain_maps[bindex].append((0, position))   
-                    for sdomain in subdomains:
-                        mask = np.all(sdomain.vertices == boundary_node, axis = 1)
-                        if np.any(mask):
-                            position = np.where(mask)[0][0]
-                            subdomain_maps[bindex].append((sdomain.domainID, position))         
-                allmaps[subdomain.domainID] = subdomain_maps
-        else:
-            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-        return allmaps
+        for i, triangle in enumerate(self.elements):
+            vertices = self.vertices[triangle[:3]]
+            if self.is_in_triangle(point, vertices):
+                return i
+        return None
     
-    
+    def locate_interval(self, point: float) -> int | None:
+        """
+        Return the index of the 1D element (interval) that contains the point.
+
+        Parameters
+        ----------
+        point : float
+            The coordinate of the point.
+
+        Returns
+        -------
+        int or None
+            Index of the interval containing the point.
+            Returns None if the point is outside the domain.
+        """
+        for i, edge in enumerate(self.elements):
+            interval = np.array([self.vertices[edge[0]], self.vertices[edge[-1]]])  # left and right vertices
+            if self.is_in_interval(point, interval):
+                return i
+        return None
     
     def measures(self) -> np.ndarray:
         """
@@ -1195,18 +1226,18 @@ class Mesh:
         if self.dim == 1:
             lengths = np.zeros(self.nelements()) 
             for i, edge in enumerate(self.elements):
-                a, b = self.vertices[edge]
-                lengths[i] = abs(b - a)
+                lengths[i] = abs(self.vertices[edge[-1]] - self.vertices[edge[0]])
             return lengths
         elif self.dim == 2:
             areas = np.zeros(self.nelements()) 
             for i, triangle in enumerate(self.elements):
-                a, b, c = self.vertices[triangle]
+                a, b, c = self.vertices[triangle[:3]]
                 areas[i] = 0.5*abs((b[0] - a[0])*(c[1] - a[1]) - (b[1] - a[1])*(c[0] - a[0]))
             return areas
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
     
+    # not modified
     def barycenters(self) -> np.ndarray:
         """
         Compute the barycenters (centroids) of triangular elements in the mesh.

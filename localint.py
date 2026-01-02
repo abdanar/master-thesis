@@ -6,7 +6,7 @@ from logger import setup_logger
 logger = setup_logger(__name__, level = 'info')
 
 class LocalIntegrator:
-    def __init__(self, element: PhysicalElement, quadrature_order = 2):
+    def __init__(self, element: PhysicalElement, quadrature_order: int = 2):
         """
         Local finite element integrator for convection-diffusion-reaction problems in 1D or 2D.
 
@@ -48,10 +48,16 @@ class LocalIntegrator:
         element : PhysicalElement
             The physical element object providing geometry and basis function evaluations.
         quadrature_order : int, optional
-            The order of quadrature used for numerical integration (default is 2).
+            Requested quadrature order. If the provided order is too low for the polynomial
+            degree of the finite element space, it is automatically increased to ensure
+            sufficient integration accuracy.
 
         Notes
         -----
+        - The effective quadrature order is chosen as max(quadrature_order, 2 * p),
+          where p is the polynomial degree of the reference element.
+        - This guarantees accurate integration of stiffness, convection, and mass terms
+          for higher-order Lagrange elements with constant coefficients.
         - Each method only requires the coefficient(s) it needs (diffusion, convection,
           reaction, or source term) and returns a NumPy array of shape (nbasis, nbasis)
           for matrices or (nbasis,) for the load vector.
@@ -61,7 +67,7 @@ class LocalIntegrator:
         - Suitable for linear or higher-order Lagrange elements in 1D or triangular elements in 2D.
         """
         self.element = element
-        self.qorder = quadrature_order
+        self.qorder = quadrature_order if quadrature_order >= 2*element.ref_element.degree else 2*element.ref_element.degree
         if self.element.ref_element.dim == 1 and self.element.ref_element.domain == 'interval':
             self.ref_pts, self.weights = interval_quadrature(self.qorder) 
         elif self.element.ref_element.dim == 2 and self.element.ref_element.domain == 'triangle':

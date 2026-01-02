@@ -21,7 +21,7 @@ visualizer_sq = visualize.MeshVisualizer(femspace_sq.mesh)
 # Create time nodes generation
 t0 = 0.0
 T = 3.0
-dt = 0.01
+dt = 0.1
 ntime = int((T - t0)/dt) + 1  # total number of time nodes
 time_points = np.linspace(t0, T, ntime)  # array of time points
 
@@ -47,25 +47,26 @@ for i, vertex in enumerate(vertices):
     x, y = vertex
     initial_cond[i] = exact(x, y, t0)
 
-OWR_solver =  WaveformRelaxation(femspace = femspace_sq,                                        
-                                n = 2, 
-                                overlap = 2, 
-                                func = func,
-                                dt = dt, 
-                                t0 = t0, 
-                                T = T,
-                                dirichlet_bc = dirichlet_bc,
-                                icond = initial_cond,
-                                tstepper = 'Theta',
-                                theta = 0.5,
-                                method = 'AS',
-                                maxiter = 100,
-                                tol = 1e-1)
+# OWR_solver =  WaveformRelaxation(femspace = femspace_sq,                                        
+#                                 n = 2, 
+#                                 overlap = 1, 
+#                                 func = func,
+#                                 dt = dt, 
+#                                 t0 = t0, 
+#                                 T = T, 
+#                                 dirichlet_bc = dirichlet_bc,
+#                                 icond = initial_cond,
+#                                 tstepper = 'Theta',
+#                                 theta = 0.5,
+#                                 method = 'AS',
+#                                 maxiter = 100,
+#                                 tol = 1e-1)
 
-solution = OWR_solver.solve()
-visualizer_pde = visualize.SolutionVisualizer(femspace_sq.mesh, solution, dt)
-#visualizer_pde.visualize_3d_time()
-visualizer_pde.visualize_3d_time_compare(exact_func = exact)
+# solution = OWR_solver.solve()
+# #visualizer_pde = visualize.SolutionVisualizer(femspace_sq.mesh, solution, dt)
+# #visualizer_pde.visualize_3d_time()
+# #visualizer_pde.visualize_3d_time_compare(exact_func = exact)
+# femspace_sq.visualize_3d_time_compare(solution, exact, dt)
 
 # pde = HeatProblem(mesh_square, func, dt, d0, T, dirichlet_bc, icond)
 # pde_solution = pde.solve()

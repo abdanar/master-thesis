@@ -33,20 +33,39 @@ class PhysicalElement:
         Attributes
         ----------
         vertices : np.ndarray
-            Physical coordinates of element vertices.
+            Physical coordinates of element vertices, only triangle corners are needed.
+            - 1D: shape (2,) for interval.
+            - 2D: shape (3, 2) for triangle.
         ref_element : ReferenceElement
             Reference element defining shape functions φ and gradients ∇φ.
         """
         self.vertices = vertices
         self.ref_element = ref_element
 
-    def reference_to_physical(self, ref_point):
-         
+    def reference_to_physical(self, ref_point):   
         """
         Map a point or points from the reference element to the physical element.
 
         The reference element (e.g., unit interval or unit triangle) is mapped to the
         physical element defined by its vertex coordinates via an affine transformation.
+
+        In 1D:
+            - Reference element: [0, 1]
+            - Physical element: [x0, x1] (vertices of the element)
+            - Mapping: x = x0 + (x1 - x0) * ξ
+            - Reference vertex 0 maps to physical vertex 0, reference vertex 1 maps to physical vertex 1
+
+        In 2D (triangle):
+            - Reference triangle vertices: (0,0), (1,0), (0,1)
+            - Physical triangle vertices: vert[0], vert[1], vert[2]
+            - Affine mapping: F(ξ, η) = R @ [ξ, η] + b
+                - R = [[x1-x0, x2-x0],
+                    [y1-y0, y2-y0]]   (edge vectors from vertex 0)
+                - b = [x0, y0]           (anchor at vertex 0)
+            - Vertex mapping:
+                Reference (0,0) → Physical vert[0]
+                Reference (1,0) → Physical vert[1]
+                Reference (0,1) → Physical vert[2]
 
         Parameters
         ----------
@@ -253,3 +272,115 @@ class PhysicalElement:
             return self.ref_element.grad_phi(ref_point)@self.jacobian_inv()
         else:
             raise NotImplementedError(f"grad_phi_physical not implemented for dim={self.ref_element.dim}")
+
+    def local_to_global_mapping(self, element: np.ndarray) -> dict:
+        """
+        Return the mapping from local node indices to global node indices for a mesh element.
+
+        In finite element methods, each element has a set of local nodes
+        numbered from 0 to n_nodes-1. This method provides the correspondence
+        between these local node indices and the global node indices in the mesh.
+
+        Parameters
+        ----------
+        element : np.ndarray
+            Array of global node indices defining the element.  
+            The order of nodes must match the reference element.
+
+        Returns
+        -------
+        dict[int, int]
+            Dictionary mapping:
+                - Key: local node index (0 ≤ i < n_nodes)
+                - Value: corresponding global node index in the mesh
+
+        Notes
+        -----
+        - This mapping is used for assembling global matrices and vectors from
+          element-local contributions.
+        - The local node ordering must be consistent with the reference element.
+
+        Example
+        -------
+            >>> # 2D triangular mesh with 4 vertices and 2 elements
+            >>> mesh.vertices
+            array([[0.0, 0.0],
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 1.0]])
+            >>> mesh.elements
+            array([[0, 1, 2],
+                [1, 3, 2]])
+            >>> phys_elem0 = femspace.get_physical_element(0)  # first triangle
+            >>> mapping0 = phys_elem0.local_to_global_mapping(mesh.elements[0])
+            >>> print(mapping0)
+            {0: 0, 1: 1, 2: 2}
+            >>> phys_elem1 = femspace.get_physical_element(1)  # second triangle
+            >>> mapping1 = phys_elem1.local_to_global_mapping(mesh.elements[1])
+            >>> print(mapping1)
+            {0: 1, 1: 3, 2: 2}
+            >>> # Local node 0 of the second triangle corresponds to global vertex 1, etc.
+        """
+        return {i : g for i, g in enumerate(element)}
+    
+    def shape_functions(self, element: np.ndarray) -> dict:
+        """
+        Return the Lagrange shape functions for this physical element, keyed by global node indices.
+
+        This method constructs callable Lagrange shape functions associated with the
+        nodes of a single physical element. Each function can be evaluated at any
+        point in physical coordinates. The dictionary keys are the global node
+        indices, making this convenient for assembling global matrices and vectors.
+
+        Parameters
+        ----------
+        element : np.ndarray
+            Array of global vertex indices defining the element.  
+            The ordering of indices must match the reference element so that
+            local Lagrange basis functions are correctly associated.
+
+            - 1D interval: shape (nbasis,)
+            - 2D triangle: shape (nbasis,)
+
+        Returns
+        -------
+        phi_dict : dict[int, Callable]
+            Dictionary mapping:
+
+            - Key: global node index
+            - Value: callable `phi(x_phys)` that returns the value of the
+            corresponding Lagrange shape function at a given physical point
+            `x_phys`.
+
+        Notes
+        -----
+        - Local-to-global correspondence is determined by the order of `element`.
+        - Each callable uses a closure (`i=i`) to correctly bind its local basis function.
+        - Physical coordinates are internally mapped to reference coordinates
+        via `self.physical_to_reference` before evaluating the reference basis.
+        - No reordering or validation of element connectivity is performed.
+
+        Example
+        -------
+            >>> # 2D triangular mesh with 4 vertices and 2 elements
+            >>> mesh.vertices
+            array([[0.0, 0.0],
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 1.0]])
+            >>> mesh.elements
+            array([[0, 1, 2],
+                [1, 3, 2]])
+            >>> phys_elem0 = femspace.get_physical_element(0)
+            >>> phi_dict0 = phys_elem0.shape_functions(mesh.elements[0])
+            >>> x_phys = np.array([0.25, 0.25])
+            >>> for g, phi_g in phi_dict0.items():
+            ...     print(f"global {g}, phi(x_phys) = {phi_g(x_phys)}")
+            global 0, phi(x_phys) = 0.5625
+            global 1, phi(x_phys) = 0.1875
+            global 2, phi(x_phys) = 0.25
+        """
+        phi_dict = {}
+        for i, g in enumerate(element): # this works because the order of element indices matches self.ref_element.phi order
+            phi_dict[g] = lambda x, i=i: self.ref_element.phi(self.physical_to_reference(x))[i]
+        return phi_dict

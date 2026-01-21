@@ -1,41 +1,45 @@
 import numpy as np
 
 # Numerical integration on the reference triangle using quadrature rule
-def triangle_quadrature(order: int):
+def triangle_quadrature(p: int):
     """
-    Return quadrature points and weights on the reference triangle.
+    Return quadrature points and weights on the reference triangle
 
-    The reference triangle is defined as
         T_ref = {(x, y) : x >= 0, y >= 0, x + y <= 1},
-    with area |T_ref| = 1/2.
+        |T_ref| = 1/2.
 
-    For low orders (1-3), minimal symmetric rules (Dunavant-style) are used.
-    For higher orders, a tensor-product Gauss-Legendre quadrature is used.
+    The quadrature is FEM-safe for Lagrange elements of degree p:
+    it integrates all polynomials of degree >= 2p exactly.
 
     Parameters
     ----------
-    order : int
-        Quadrature order (polynomial degree to integrate exactly). 
+    p : int
+        Polynomial degree of the Lagrange finite element.
 
     Returns
     -------
-    points : np.ndarray, shape (npoints, 2)
-        Quadrature points in reference coordinates.
-    weights : np.ndarray, shape (npoints,)
-        Quadrature weights corresponding to each point. Sum(weights) = 1/2.
+    points : (npoints, 2) ndarray
+        Quadrature points on the reference triangle.
+    weights : (npoints,) ndarray
+        Quadrature weights. Sum(weights) = 1/2.
     """
-    # --- Low-order minimal rules (Dunavant-style) ---
-    if order == 1:
+    # --- Minimal symmetric rules for low degree ---
+    if p == 1:
+        # exact for degree 2
         points = np.array([[1/3, 1/3]])
         weights = np.array([1/2])
         return points, weights
-    elif order == 2:
+
+    if p == 2:
+        # exact for degree 4
         points = np.array([[1/6, 1/6],
                            [2/3, 1/6],
                            [1/6, 2/3]])
         weights = np.array([1/6, 1/6, 1/6])
         return points, weights
-    elif order == 3:
+
+    if p == 3:
+        # exact for degree 6
         points = np.array([[1/3, 1/3],
                            [1/5, 1/5],
                            [3/5, 1/5],
@@ -43,9 +47,15 @@ def triangle_quadrature(order: int):
         weights = np.array([-27/96, 25/96, 25/96, 25/96])
         return points, weights
 
-    # --- High-order: tensor-product Gauss–Legendre ---
-    xi_1d, w_1d = np.polynomial.legendre.leggauss(order)
-    xi_1d = 0.5 * (xi_1d + 1.0)  # map [-1,1] -> [0,1]
+
+    # --- High-order: tensor-product Gauss–Legendre (Duffy transform) ---
+    # Choose q so that 2*q - 1 >= 2*p  → q >= p + 1
+    q = p + 1  # p+2 if you want extra safety
+
+    xi_1d, w_1d = np.polynomial.legendre.leggauss(q)
+
+    # Map [-1,1] → [0,1]
+    xi_1d = 0.5 * (xi_1d + 1.0)
     w_1d = 0.5 * w_1d
 
     points = []
@@ -55,7 +65,7 @@ def triangle_quadrature(order: int):
         for j, eta in enumerate(xi_1d):
             x = xi
             y = (1.0 - xi) * eta
-            w = w_1d[i] * w_1d[j] * (1.0 - xi)  # Jacobian factor
+            w = w_1d[i] * w_1d[j] * (1.0 - xi)  # Jacobian
             points.append([x, y])
             weights.append(w)
 

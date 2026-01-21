@@ -55,11 +55,13 @@ class ReferenceElement:
             self.domain = domain
         self.space = space
         self.degree = degree
-        self.ref_nodes = self.reference_nodes()
         if self.dim == 1:
             self.nbasis = degree + 1
         elif self.dim == 2:
             self.nbasis = (degree + 1)*(degree + 2)//2
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+        self.ref_nodes = self.reference_nodes()
 
     def reference_nodes(self) -> np.ndarray:
         """

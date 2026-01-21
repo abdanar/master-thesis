@@ -1,6 +1,6 @@
 import numpy as np
-from phyelement import PhysicalElement
-from quadrature import triangle_quadrature, interval_quadrature
+from fem.phyelement import PhysicalElement
+from fem.quadrature import triangle_quadrature, interval_quadrature
 from logger import setup_logger
 
 logger = setup_logger(__name__, level = 'info')

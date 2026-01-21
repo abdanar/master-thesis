@@ -1,35 +1,37 @@
 import sys
 import numpy as np
 from tqdm import trange
-from femspace import FEMSpace
-from assembler import Assembler
+from fem.femspace import FEMSpace
+from fem.assembler import Assembler
 import timestepper as ts
 import logger as log 
 
 logger = log.setup_logger(__name__, level = 'info')
 
 class HeatProblem:
-    def __init__(self, femspace: FEMSpace, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'BackwardEuler', theta: float = 0.5):
-
+    def __init__(self, femspace: FEMSpace, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'Theta', theta: float = 0.5):
         """
         FEM solver for the time-dependent heat equation:
-            u_t(x, y, t) - ∇·(∇u(x, y, t)) = f(x, y, t),   (x, y) ∈ Ω, t ∈ (t0, T)
+            - 1D: u_t(x, t) - u_xx(x, t)) = f(x, t),   x ∈ Ω, t ∈ (t0, T)
+            - 2D: u_t(x, y, t) - ∇·(∇u(x, y, t)) = f(x, y, t),   (x, y) ∈ Ω, t ∈ (t0, T)
         with:
             - Dirichlet boundary conditions specified at all times
-            - Initial condition u(x, y, t0) = u0(x, y)
+            - Initial condition 
+                - 1D: u(x, t0) = u0(x)
+                - 2D: u(x, y, t0) = u0(x, y)
         The semi-discrete system (after spatial FEM discretization) is:
             M u'(t) + A u(t) = F(t)
         where:
             - M : mass matrix
             - A : stiffness matrix
-            - F(t) : load vector due to source term f(x, y, t)
+            - F(t) : load vector due to source term f(x, t) or f(x, y, t)
 
         Parameters
         ----------
         femspace : FEMSpace
             FEM space object
         func : callable
-            Source term f(x, y, t)
+            Source term f(x, t) for 1D or f(x, y, t) for 2D
         dt : float
             Time step size
         t0 : float
@@ -42,7 +44,7 @@ class HeatProblem:
         icond : np.ndarray
             Initial condition vector at t0
         tstepper : str
-            Time integration method ('BackwardEuler', 'CrankNicolson', or 'Theta')
+            Time integration method (only 'Theta')
         theta : float, optional
             Parameter for the θ-method, 0 < θ ≤ 1. Only used if tstepper='Theta'.
             Common values:
@@ -60,6 +62,7 @@ class HeatProblem:
         self.tstepper = tstepper
         self.theta = theta
         self.ntime = int((T - t0)/dt) + 1 # total number of time nodes (including boundaries)
+        self.dim = femspace.dim
 
     def assemble_space(self):
         """
@@ -73,8 +76,13 @@ class HeatProblem:
                 FEM assembler object
         """
         assembler = Assembler(self.femspace)
-        diffusion = lambda x, y: np.eye(2)
-        reaction = lambda x, y: 1
+
+        if self.dim == 2:
+            diffusion = lambda x, y: np.eye(2)
+            reaction  = lambda x, y: 1
+        else:  # 1D
+            diffusion = lambda x: 1
+            reaction  = lambda x: 1
 
         logger.debug("Assembling spatial FEM matrices")
 
@@ -87,7 +95,6 @@ class HeatProblem:
         return assembler, M, A
 
     def solve(self) -> np.ndarray:
-
         """
         Solve the PDE using the specified time-stepping method.
 
@@ -97,7 +104,6 @@ class HeatProblem:
             Each column corresponds to the solution at a specific time step:
             solution[:, i] = u(x, t_i), with the first column representing the initial condition at t0.
         """
-
         # Assemble FEM matrices
         assembler, M, A = self.assemble_space()
         nsteps = self.ntime - 1
@@ -112,19 +118,18 @@ class HeatProblem:
         solution[:, 0] = u_n
 
         # Initialize previous step matrices and load vector for Crank-Nicolson
-        F_prev = assembler.global_load_vector(lambda x, y: self.f(x, y, self.t0))
+        if self.dim == 2:
+            func = lambda x, y: self.f(x, y, self.t0)
+        else:  # 1D
+            func = lambda x: self.f(x, self.t0)
+
+        F_prev = assembler.global_load_vector(func)
+
         A_prev, M_prev = A, M
 
         # Select time-stepper
-        if self.tstepper == 'BackwardEuler':
-            stepper = ts.BackwardEuler(M = lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
-                                    dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet)
-        elif self.tstepper == 'CrankNicolson':
-            stepper = ts.CrankNicolson(M =  lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
-                                    dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet)
-        elif self.tstepper == 'Theta':
-            stepper = ts.Theta(M =  lambda t: M, A = lambda t: A, assembler = assembler, f = self.f,
-                                    dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet, theta = self.theta)
+        if self.tstepper == 'Theta':
+            stepper = ts.Theta(M = M, A = A, assembler = assembler, f = self.f, dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet, theta = self.theta)
         else:
             raise ValueError(f"Unknown time-stepper: {self.tstepper}")
 
@@ -133,12 +138,8 @@ class HeatProblem:
         with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, disable = not sys.stdout.isatty()) as pbar:
             for step in pbar:
                 pbar.set_postfix_str(f"\033[93mt={t_n:.3e}\033[0m")  # yellow t
-                if self.tstepper == 'BackwardEuler':
-                    u_n = stepper.step(u_n, t_n)
-                elif self.tstepper == 'CrankNicolson':
-                    u_n, A_prev, M_prev, F_prev = stepper.step(u_n, A_prev, M_prev, F_prev, t_n)
-                elif self.tstepper == 'Theta':
-                    u_n, A_prev, M_prev, F_prev = stepper.step(u_n, A_prev, M_prev, F_prev, t_n)
+                if self.tstepper == 'Theta':
+                    u_n, A_prev, M_prev, F_prev = stepper.step(u_n, F_prev, t_n, A_prev, M_prev)
                 t_n += self.dt
                 solution[:, step + 1] = u_n.copy()
         return solution

@@ -1,8 +1,8 @@
 import numpy as np
-from femspace import FEMSpace
-from refelement import ReferenceElement
-from phyelement import PhysicalElement
-from localint import LocalIntegrator
+from fem.femspace import FEMSpace
+from fem.refelement import ReferenceElement
+from fem.phyelement import PhysicalElement
+from fem.localint import LocalIntegrator
 from logger import setup_logger
 
 logger = setup_logger(__name__, level = 'info')
@@ -28,7 +28,7 @@ class Assembler:
         elements = self.mesh.elements
         for element in elements:
             if self.dim == 1:
-                phy_element = PhysicalElement(self.mesh.vertices[element[0], element[-1]], ref_element)
+                phy_element = PhysicalElement(self.mesh.vertices[[element[0], element[-1]]], ref_element)
             else:
                 phy_element = PhysicalElement(self.mesh.vertices[element[:3]], ref_element) 
             lstiffness = LocalIntegrator(phy_element, quadrature_order).local_stiffness_matrix(diffusion)
@@ -50,7 +50,7 @@ class Assembler:
         elements = self.mesh.elements
         for element in elements:
             if self.dim == 1:
-                phy_element = PhysicalElement(self.mesh.vertices[element[0], element[-1]], ref_element)
+                phy_element = PhysicalElement(self.mesh.vertices[[element[0], element[-1]]], ref_element)
             else:
                 phy_element = PhysicalElement(self.mesh.vertices[element[:3]], ref_element)
             lconvection = LocalIntegrator(phy_element, quadrature_order).local_convection_matrix(convection)
@@ -72,7 +72,7 @@ class Assembler:
         elements = self.mesh.elements
         for element in elements:
             if self.dim == 1:
-                phy_element = PhysicalElement(self.mesh.vertices[element[0], element[-1]], ref_element)
+                phy_element = PhysicalElement(self.mesh.vertices[[element[0], element[-1]]], ref_element)
             else:
                 phy_element = PhysicalElement(self.mesh.vertices[element[:3]], ref_element)
             lmass = LocalIntegrator(phy_element, quadrature_order).local_mass_matrix(reaction)
@@ -94,7 +94,7 @@ class Assembler:
         elements = self.mesh.elements
         for element in elements:
             if self.dim == 1:
-                phy_element = PhysicalElement(self.mesh.vertices[element[0], element[-1]], ref_element)
+                phy_element = PhysicalElement(self.mesh.vertices[[element[0], element[-1]]], ref_element)
             else:
                 phy_element = PhysicalElement(self.mesh.vertices[element[:3]], ref_element)
             lload = LocalIntegrator(phy_element, quadrature_order).local_load_vector(func)
@@ -104,7 +104,7 @@ class Assembler:
         return F_global
     
     # Apply Dirichlet boundary conditions
-    def apply_Dirichlet_bc(self, K, rhs, dirichlet_nodes: dict) -> tuple[np.ndarray, np.ndarray]:
+    def apply_Dirichlet_bc(self, K, rhs, dirichlet_nodes: dict, modify_lhs: bool = True) -> tuple[np.ndarray, np.ndarray]:
 
         """
         Apply Dirichlet (essential) boundary conditions to a finite element system.
@@ -126,11 +126,14 @@ class Assembler:
         dirichlet_nodes : dict
             A dictionary mapping global node indices to prescribed values.
             Example: {0: 0.0, 5: 1.0} means node 0 is fixed at 0 and node 5 at 1.
+        modify_lhs : bool, default True
+            If True, modifies K to enforce Dirichlet conditions (zeros rows/columns, sets diagonal).
+            If False, only modifies rhs to reflect Dirichlet values (useful for reusing LU of K).
 
         Returns
         -------
         K_mod : numpy.ndarray
-            The modified stiffness matrix with Dirichlet conditions applied.
+            The modified stiffness matrix with Dirichlet conditions applied (only if modify_lhs=True, otherwise same as input).
         rhs_mod : numpy.ndarray
             The modified right-hand side vector with Dirichlet conditions applied.
 
@@ -142,7 +145,7 @@ class Assembler:
         - This is the standard "strong imposition" method for essential boundary conditions.
         """
 
-        logger.debug(f"Applying Dirichlet boundary conditions to {len(dirichlet_nodes)} nodes")
+        logger.debug(f"Applying Dirichlet boundary conditions to {len(dirichlet_nodes)} nodes | modify_lhs={modify_lhs}")
 
         # The total number of nodes, including boudnary
         nT = K.shape[0]
@@ -155,11 +158,12 @@ class Assembler:
                 for node, value in dirichlet_nodes.items():
                     rhs[i] -= K[i, node]*value
 
-        # Change LHS considering the Dirichlet boundary conditions
-        for node, value in dirichlet_nodes.items():
-            K[node, :] = 0     # zero out the row
-            K[:, node] = 0     # zero out the column
-            K[node, node] = 1  # set the diagonal to 1
+        if modify_lhs:
+            # Change LHS considering the Dirichlet boundary conditions
+            for node, value in dirichlet_nodes.items():
+                K[node, :] = 0     # zero out the row
+                K[:, node] = 0     # zero out the column
+                K[node, node] = 1  # set the diagonal to 1
 
         logger.debug("Dirichlet boundary conditions applied")
         

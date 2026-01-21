@@ -1,10 +1,11 @@
 import itertools as it
 from collections import defaultdict
+from collections import Counter
 import numpy as np
 import triangle as tr
 import pymetis
-from phyelement import PhysicalElement
-from refelement import ReferenceElement
+from fem.phyelement import PhysicalElement
+from fem.refelement import ReferenceElement
 from logger import setup_logger
 
 logger = setup_logger(__name__, level = 'info')
@@ -48,31 +49,159 @@ class Mesh:
         self.dim = dim
         self.domainID = domainID
         self.vertices = np.asarray(vertices)
+        self.options = Mesh.parse_options(options)
+        self.is_structured = 'st' in self.options
 
         if dim == 1:
-            self.vertices = self.vertices.reshape(-1)
-            self.elements = np.array([[i, i + 1] for i in range(len(self.vertices) - 1)], dtype = int)
+            if elements is None:
+                self.vertices = self.vertices.reshape(-1)
+                self.elements = np.array([[i, i + 1] for i in range(len(self.vertices) - 1)], dtype = int)
+            else:
+                self.elements = np.asarray(elements)
             self.segments = None
             self.holes = None
             self.options = 'nothing'
         elif dim == 2:
             if elements is None: # only triangulate if elements are not provided
-                data = {"vertices": vertices}
-                if segments is not None:
-                    data["segments"] = segments
-                if holes is not None:
-                    data["holes"] = holes
-                triangulation = tr.triangulate(tri = data, opts = options)
-                self.vertices = triangulation['vertices']
-                self.elements = triangulation['triangles']
+                if self.is_structured:
+                    self._generate_structured_rectangle(opts = self.options)
+                else:
+                    data = {"vertices": vertices}
+                    if segments is not None:
+                        data["segments"] = segments
+                    if holes is not None:
+                        data["holes"] = holes
+                    triangulation = tr.triangulate(tri = data, opts = options)
+                    self.vertices = triangulation['vertices']
+                    self.elements = triangulation['triangles']
             else:
                 self.elements = np.asarray(elements)
+            self.nx, self.ny = (self.get_structured_grid_size() if self.is_structured else (None, None))
             self.segments = segments
             self.holes = holes
             self.options = options
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
     
+    @staticmethod
+    def parse_options(options):
+        """
+        Converts options string into a dictionary.
+        'st,Nx=6,Ny=5' -> {'st': True, 'Nx':6, 'Ny':5}
+        """
+        opts = {}
+        if options is None:
+            return opts
+        for item in options.split(','):
+            item = item.strip()
+            if '=' in item:
+                k, v = item.split('=')
+                opts[k.strip()] = float(v)
+            else:
+                opts[item] = True
+        return opts
+    
+    def get_structured_grid_size(self):
+        """
+        Compute Nx and Ny for an existing structured rectangular mesh.
+
+        Returns
+        -------
+        Nx : int
+            Number of points along x-direction
+        Ny : int
+            Number of points along y-direction
+        """
+        x_unique = np.unique(self.vertices[:, 0])
+        y_unique = np.unique(self.vertices[:, 1])
+
+        Nx = len(x_unique)
+        Ny = len(y_unique)
+
+        return Nx, Ny
+    
+    def _generate_structured_rectangle(self, opts):
+        """
+        Generate a structured rectangular mesh from the current vertex bounds.
+
+        This function constructs a uniform structured grid over the rectangular
+        domain defined by the current vertex coordinates (`self.vertices`). It 
+        updates the mesh vertices and elements (triangles) in a row-major order
+        along the x-direction with a fixed diagonal for each cell.
+
+        The mesh can be defined either by the number of points in x and y
+        directions (`Nx`, `Ny`) or by the desired spacing (`dx`, `dy`).
+
+        Parameters
+        ----------
+        opts : dict
+            A dictionary containing mesh generation options. Possible keys:
+            - 'Nx' : int, optional
+                Number of points along the x-direction (default: 10)
+            - 'Ny' : int, optional
+                Number of points along the y-direction (default: 10)
+            - 'dx' : float, optional
+                Desired spacing between points in x-direction. Overrides 'Nx' if provided.
+            - 'dy' : float, optional
+                Desired spacing between points in y-direction. Overrides 'Ny' if provided.
+
+        Updates
+        -------
+        self.vertices : np.ndarray of shape (Nx*Ny, 2)
+            Coordinates of all mesh vertices in the structured grid. 
+            Vertices are ordered in **x-major, y-minor** order (row-wise along x).
+
+        self.elements : np.ndarray of shape (2*(Nx-1)*(Ny-1), 3)
+            Triangle connectivity array. Each element is a list of three vertex
+            indices. Each rectangular cell is split into two triangles with a 
+            fixed diagonal ([p0, p1, p2] and [p0, p2, p3]).
+
+        Notes
+        -----
+        - This function assumes that the initial vertices define a rectangular 
+        domain (or at least that `xmin`, `xmax`, `ymin`, `ymax` define the
+        bounding rectangle for the mesh).
+        - For a consistent triangle orientation and FEM assembly, the diagonal
+        of each rectangle is fixed from bottom-left to top-right.
+        - This method is intended only for structured rectangular grids.
+        """
+        verts = self.vertices
+        xmin, ymin = verts[:,0].min(), verts[:,1].min()
+        xmax, ymax = verts[:,0].max(), verts[:,1].max()
+
+        # Determine spacing
+        if 'dx' in opts:
+            dx = opts['dx']
+            Nx = int((xmax - xmin)/dx) + 1
+        else:
+            Nx = int(opts.get('Nx', 10))
+            dx = (xmax - xmin)/(Nx-1)
+
+        if 'dy' in opts:
+            dy = opts['dy']
+            Ny = int((ymax - ymin)/dy) + 1
+        else:
+            Ny = int(opts.get('Ny', 10))
+            dy = (ymax - ymin)/(Ny-1)
+
+        # Generate structured vertices
+        x = np.linspace(xmin, xmax, Nx)
+        y = np.linspace(ymin, ymax, Ny)
+        X, Y = np.meshgrid(x, y, indexing='ij')
+        self.vertices = np.column_stack([X.ravel(), Y.ravel()])
+
+        # Generate triangles with fixed diagonal
+        elements = []
+        for i in range(Nx-1):
+            for j in range(Ny-1):
+                p0 = i*Ny + j
+                p1 = (i+1)*Ny + j
+                p2 = (i+1)*Ny + (j+1)
+                p3 = i*Ny + (j+1)
+                elements.append([p0,p1,p2])
+                elements.append([p0,p2,p3])
+        self.elements = np.array(elements, dtype=int)
+
     def nnodes(self) -> int:
         """
         Return the total number of mesh nodes.
@@ -280,6 +409,7 @@ class Mesh:
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
     
+    # you can add parameter like `original` that returns only for 1degree mesh maps
     def edge_to_element_map(self): # f(edge) = {elements sharing edge}
         """
         Build a mapping from edges to elements sharing that edge, including higher-order edges.
@@ -378,6 +508,7 @@ class Mesh:
                 edge_to_element[edge].add(elidx)
         return edge_to_element
 
+    # For 1D it is not correct
     def adjacency(self): # f(element) = {neighboring elements}
         """
         Compute the adjacency dictionary of elements in the mesh.
@@ -445,8 +576,18 @@ class Mesh:
         - Adjacency is symmetric: if `j` is a neighbor of `i`, then `i` is a neighbor of `j`.
         - Values are sets, so the order of neighbors is not guaranteed.
         """
-        edge_to_element = self.edge_to_element_map()
         adjacency = defaultdict(set)
+        if self.dim == 1:
+            geo_elements = self.elements[:, [0, -1]]
+            # map node → set of interval indices (this must be inside edge to element map for 1D since edges are just points)
+            edge_to_element = defaultdict(set) # node_to_intervals
+            for i, (u, v) in enumerate(geo_elements):
+                edge_to_element[u].add(i)
+                edge_to_element[v].add(i)
+        elif self.dim == 2:
+            edge_to_element = self.edge_to_element_map()
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
         for elements in edge_to_element.values():
             if len(elements) == 2:  # interior edge (shared by 2 elements)
                 elem1, elem2 = elements
@@ -497,11 +638,23 @@ class Mesh:
         boundary_edges() -> {(0,1), (0,2), (1,3), (2,4), (3,4)}
         """
         bdedges = set()
-        edge_to_element = self.edge_to_element_map()
-        for edge, elements in edge_to_element.items():
-            if len(elements) == 1:
-                bdedges.add(edge)
-        return bdedges
+        if self.dim == 1:
+            edges = set() # all edges
+            for interval in self.elements:
+                edges.update(self.edges(interval))
+            arr = np.array(list(edges)) # Convert set to NumPy array once
+            vals, counts = np.unique(arr, return_counts=True)
+            appears_once = vals[counts == 1]
+            positions = np.argwhere(np.isin(arr, appears_once))
+            return {tuple(arr[positions[0][0]]), tuple(arr[positions[1][0]])}
+        elif self.dim == 2:
+            edge_to_element = self.edge_to_element_map()
+            for edge, elements in edge_to_element.items():
+                if len(elements) == 1:
+                    bdedges.add(edge)
+            return bdedges
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
 
     def boundary_vertices(self) -> set[int]:
         """
@@ -548,17 +701,22 @@ class Mesh:
         - Useful for applying boundary conditions, visualization, or identifying
         mesh boundary vertices.
         """
-        bdedges = self.boundary_edges()
         if self.dim == 1:
-            return set(sorted(bdedges)[:2])
+            edges = set() # all edges
+            for interval in self.elements:
+                edges.update(self.edges(interval))
+            arr = np.array(list(edges)) # Convert set to NumPy array once
+            vals, counts = np.unique(arr, return_counts=True)
+            return set(vals[counts == 1])
         elif self.dim == 2:
+            bdedges = self.boundary_edges()
             return set(it.chain.from_iterable(bdedges))
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
     
-    def boundary_nodes(self) -> list:
+    def boundary_nodes(self) -> np.ndarray:
         """
-        Return the coordinates of all boundary vertices of the domain.
+        Return the coordinates of all boundary vertices of the domain as a NumPy array.
 
         For 1D meshes, the boundary consists of the two endpoints of the domain.
         For 2D meshes, the boundary vertices are those that belong to at least one
@@ -566,12 +724,11 @@ class Mesh:
 
         Returns
         -------
-        bdnodes : list of ndarray
-            List of coordinate arrays corresponding to boundary vertices.
-            Each array has shape (dim,).
+        bdnodes : ndarray, shape (num_boundary_nodes, dim)
+            Array of coordinates of boundary vertices.
         """
-        bdvertices = self.boundary_vertices()
-        return [self.vertices[i] for i in bdvertices] # there was sorting here before sorted(bdvertices)!
+        bdvertices = np.array(list(self.boundary_vertices()), dtype=int)       # indices of boundary vertices
+        return np.array(self.vertices[bdvertices])  # shape (num_boundary_nodes, dim)
 
     def boundary_elements(self) -> set:
         """
@@ -670,8 +827,115 @@ class Mesh:
             self.is_boundary_element([4, 5, 6])  # False
         """
         return bool(set(element) & self.boundary_vertices())
+    
+    def interval_decompose(self, n: int, overlap: int = 0):
 
-    def decompose(self, n: int, overlap: int = 0, edge_weights = None): # Element-based partitioning
+        """
+        Split a 1D grid into overlapping subdomains.
+
+        Each subdomain contains its local chunk plus `overlap` points
+        from each neighboring subdomain. Consecutive subdomains share
+        exactly `overlap + 1` grid points.
+
+        Parameters
+        ----------
+        overlap : int
+            Number of additional points shared with each neighboring subdomain.
+        num_subdomains : int
+            Number of subdomains to create.
+
+        Returns
+        -------
+        dict of int -> numpy.ndarray
+            Dictionary mapping subdomain index (0-based) to its array of
+            grid points, including the overlap regions.
+        """
+        
+        x = np.sort(self.vertices)
+        nx = x.shape[0]
+        
+        # Base size of each non-overlapping part
+        base = nx//n  # number of intervals
+        remainder = nx% n
+        
+        # Determine number of local points for non-overlapping part
+        sizes = []
+        for i in range(n):
+            sz = base + (1 if i < remainder else 0)
+            sizes.append(sz)
+    
+        subdomains = {}
+        start = 0
+        for j, subsize in enumerate(sizes):
+            if j == 0:
+                subdomains[j + 1] = x[0: subsize + overlap]
+            elif j == n - 1:
+                subdomains[j + 1] = x[-(subsize + overlap):]
+            else:
+                subdomains[j + 1] = x[start - overlap: start + subsize + overlap]
+            start += subsize
+        
+        return subdomains
+    
+    def vertical_membership(self, num_parts_x):
+        """
+        Generate membership array for vertical partitions.
+        
+        Parameters
+        ----------
+        mesh : Mesh
+            Mesh object containing structured vertices and elements.
+        num_parts_x : int
+            Number of vertical partitions.
+        
+        Returns
+        -------
+        membership : np.ndarray
+            Array of length len(mesh.elements) indicating partition index for each element.
+        """
+        Nx, Ny = self.nx, self.ny
+        membership = np.zeros(len(self.elements), dtype=int)
+        cols_per_part = Nx // num_parts_x
+        
+        for elem_idx, elem in enumerate(self.elements):
+            # Average column index of triangle vertices
+            col_avg = sum(v // Ny for v in elem) / 3
+            part = min(int(col_avg // cols_per_part), num_parts_x - 1)
+            membership[elem_idx] = part
+            
+        return membership
+    
+    def horizontal_membership(self, num_parts_y):
+        """
+        Generate membership array for horizontal partitions.
+        
+        Parameters
+        ----------
+        mesh : Mesh
+            Mesh object containing structured vertices and elements.
+        num_parts_y : int
+            Number of horizontal partitions.
+        
+        Returns
+        -------
+        membership : np.ndarray
+            Array of length len(mesh.elements) indicating partition index for each element.
+        """
+        Ny = self.ny
+        membership = np.zeros(len(self.elements), dtype=int)
+        rows_per_part = Ny // num_parts_y
+        
+        for elem_idx, elem in enumerate(self.elements):
+            # Average row index of triangle vertices
+            row_avg = sum(v % Ny for v in elem) / 3
+            part = min(int(row_avg // rows_per_part), num_parts_y - 1)
+            membership[elem_idx] = part
+            
+        return membership
+    
+
+    # For optimization, split this function to several parts!
+    def decompose(self, n: int, overlap: int = 0, direction: str = 'vertical', edge_weights = None): # Element-based partitioning
         """
         Decompose the mesh into `n` subdomains using PyMetis, with optional overlapping layers.
 
@@ -1025,10 +1289,22 @@ class Mesh:
             """
             return np.unique(np.concatenate(elements))
 
-        # Create adjacency list and partition using PyMetis
-        adjdict = self.adjacency()
-        adjlist = [sorted(list(adjdict[i])) for i in range(len(self.elements))]
-        _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
+        if self.is_structured: # for structured mesh, membership array is constructed using the fact that mesh is row-wise in x-direction!
+            if direction == 'vertical':
+                membership = self.vertical_membership(n)
+            elif direction == 'horizontal':
+                membership = self.horizontal_membership(n)
+            else:
+                # Create adjacency list and partition using PyMetis
+                adjdict = self.adjacency()
+                adjlist = [sorted(list(adjdict[i])) for i in range(len(self.elements))]
+                _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
+                # raise ValueError(f"Unsupported direction: {direction}. Only vertical and horizontal directions are supported.")
+        else:
+            # Create adjacency list and partition using PyMetis
+            adjdict = self.adjacency()
+            adjlist = [sorted(list(adjdict[i])) for i in range(len(self.elements))]
+            _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
 
         # Assign elements to subdomains
         subdomains_elements = {j: [] for j in range(1, n + 1)}

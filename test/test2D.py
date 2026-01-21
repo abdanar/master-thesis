@@ -1,19 +1,20 @@
-# main.py
 import numpy as np
-import mesh
-import visualize 
+import fem.mesh as mesh
+import visualize as visualize 
 from triangle import triangulate
-from heat import HeatProblem
-from femspace import FEMSpace
-from assembler import Assembler
-from owrelaxation import WaveformRelaxation
+from fom.heat import HeatProblem
+from fem.femspace import FEMSpace
+from fem.assembler import Assembler
+from fom.owrelaxation import WaveformRelaxation
+
+# 2D Example (Overlapping Waveform Relaxation method for Heat problem)
 
 # Create a simple square mesh - space mesh generation
 vert = np.array([[0,0],[1,0],[1,1],[0,1]])
 mesh_square = mesh.Mesh(vert, options = 'qa0.01')
 
-# Finite element space of degree 2
-femspace_sq = FEMSpace(mesh_square, degree = 2)
+# Finite element space of degree 1
+femspace_sq = FEMSpace(mesh_square, degree = 1)
 
 # Visualize the square mesh
 visualizer_sq = visualize.MeshVisualizer(femspace_sq.mesh)
@@ -47,26 +48,43 @@ for i, vertex in enumerate(vertices):
     x, y = vertex
     initial_cond[i] = exact(x, y, t0)
 
-# OWR_solver =  WaveformRelaxation(femspace = femspace_sq,                                        
-#                                 n = 2, 
-#                                 overlap = 1, 
-#                                 func = func,
-#                                 dt = dt, 
-#                                 t0 = t0, 
-#                                 T = T, 
-#                                 dirichlet_bc = dirichlet_bc,
-#                                 icond = initial_cond,
-#                                 tstepper = 'Theta',
-#                                 theta = 0.5,
-#                                 method = 'AS',
-#                                 maxiter = 100,
-#                                 tol = 1e-1)
+# Heat_solver = HeatProblem(
+#             femspace = femspace_sq,
+#             func = func, 
+#             dt = dt, 
+#             t0 = t0, 
+#             T = T, 
+#             dirichlet_bc = dirichlet_bc, 
+#             icond = initial_cond, 
+#             tstepper = 'Theta',
+#             theta = 0.5)
 
-# solution = OWR_solver.solve()
-# #visualizer_pde = visualize.SolutionVisualizer(femspace_sq.mesh, solution, dt)
-# #visualizer_pde.visualize_3d_time()
-# #visualizer_pde.visualize_3d_time_compare(exact_func = exact)
-# femspace_sq.visualize_3d_time_compare(solution, exact, dt)
+# heat_solution = Heat_solver.solve()
+
+OWR_solver =  WaveformRelaxation(femspace = femspace_sq,                                        
+                                n = 2, 
+                                overlap = 1, 
+                                func = func,
+                                dt = dt, 
+                                t0 = t0, 
+                                T = T, 
+                                dirichlet_bc = dirichlet_bc,
+                                icond = initial_cond,
+                                tstepper = 'Theta',
+                                theta = 0.5,
+                                method = 'RAS',
+                                maxiter = 100,
+                                tol = 1e-3)
+
+
+owr_solution = OWR_solver.solve()
+visualizer_pde = visualize.SolutionVisualizer(femspace_sq.mesh, owr_solution, dt)
+# visualizer_pde.write_vtk_time_series(exact_func = exact, folder="vtk", prefix="heat_solution")
+# visualizer_pde.write_vtk_time_series(exact_func = exact, folder="vtk", prefix="heat_solution")
+# visualizer_pde.visualize_3d_time()
+#visualizer_pde.visualize_3d_time_compare(exact_func = exact)
+# visualizer_pde.visualize_3d_time_error(exact_func = exact)
+femspace_sq.visualize_3d_time_compare(owr_solution, exact, dt)
 
 # pde = HeatProblem(mesh_square, func, dt, d0, T, dirichlet_bc, icond)
 # pde_solution = pde.solve()

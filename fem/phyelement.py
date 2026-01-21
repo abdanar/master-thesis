@@ -1,5 +1,5 @@
 import numpy as np
-from refelement import ReferenceElement
+from fem.refelement import ReferenceElement
 
 # --------------------------------------------------------------------------
 # Physical Element for Finite Element Method (FEM)
@@ -382,5 +382,20 @@ class PhysicalElement:
         """
         phi_dict = {}
         for i, g in enumerate(element): # this works because the order of element indices matches self.ref_element.phi order
-            phi_dict[g] = lambda x, i=i: self.ref_element.phi(self.physical_to_reference(x))[i]
+            phi_dict[g] = lambda x, i=i: self.ref_element.phi(self.physical_to_reference(x))[i] # must be changed
         return phi_dict
+
+    def shape_function_gradients(self, element: np.ndarray) -> dict:
+        """
+        Return gradients of Lagrange shape functions in physical coordinates,
+        keyed by global node indices.
+        """
+        phi_grad_dict = {}
+        for i, g in enumerate(element):
+            if self.ref_element.dim == 1: # must be changed
+                phi_grad_dict[g] = lambda x, i=i: (self.ref_element.grad_phi(x)/self.jacobian())[i]
+            elif self.ref_element.dim == 2:
+                phi_grad_dict[g] = lambda x, i=i: (self.ref_element.grad_phi(x)@self.jacobian_inv())[i]
+            else:
+                raise NotImplementedError(f"grad_phi_physical not implemented for dim={self.ref_element.dim}")
+        return phi_grad_dict

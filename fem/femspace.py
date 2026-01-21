@@ -1,6 +1,6 @@
-from mesh import Mesh
-from refelement import ReferenceElement
-from phyelement import PhysicalElement
+from fem.mesh import Mesh
+from fem.refelement import ReferenceElement
+from fem.phyelement import PhysicalElement
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
@@ -284,6 +284,9 @@ class FEMSpace:
         """
         return self.get_physical_element(element_index).shape_functions(self.mesh.elements[element_index])
     
+    def get_shape_function_gradients(self, element_index: int) -> dict:
+        return self.get_physical_element(element_index).shape_function_gradients(self.mesh.elements[element_index])
+    
     def find_element_containing(self, x) -> int | None:
         """
         Find the mesh element that contains a given point.
@@ -318,6 +321,14 @@ class FEMSpace:
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
 
+    def evaluate_solution_on_element(self, U, elem_index, x):
+        phi_dict = self.get_shape_functions(elem_index)
+        return sum(U[g] * phi_g(x) for g, phi_g in phi_dict.items())
+    
+    def evaluate_grad_solution_on_element(self, U, elem_index, x):
+        phi_dict = self.get_shape_function_gradients(elem_index)
+        return sum(U[g] * phi_g(x) for g, phi_g in phi_dict.items())
+
     def evaluate_solution(self, U: np.ndarray, x) -> float:
         """
         Evaluate the global FEM solution at a given physical point.
@@ -350,7 +361,18 @@ class FEMSpace:
 
         # Evaluate u_h(x) = sum(U[g]*phi_g(x))
         return sum(U[g]*phi_g(x) for g, phi_g in phi_dict.items())
-    
+
+    def evaluate_grad_solution(self, U: np.ndarray, x) -> float:
+
+       # Find the element containing x
+        element_index = self.find_element_containing(x)
+
+        # Get the grad of shape functions for this element
+        grad_phi_dict = self.get_shape_function_gradients(element_index)
+
+        # Evaluate u_h(x) = sum(U[g]*gradphi_g(x))
+        return sum(U[g]*phi_g(x) for g, phi_g in grad_phi_dict.items())
+
     def visualize_3d_time_compare(self, u, exact_func, dt, cmap='viridis', nx=100, ny=100):
         """
         Compare numeric FEM solution with exact solution on a fine grid for any element degree.
@@ -427,4 +449,127 @@ class FEMSpace:
             fig.canvas.draw_idle()
 
         time_slider.on_changed(update)
+        plt.show()
+    
+
+    def visualize_1d_time_compare(self, u, exact_func, dt, nloc=20):
+        """
+        Correct 1D FEM visualization for any polynomial degree.
+
+        - Red line: exact solution
+        - Blue line: FEM solution (element-local evaluation)
+        - Black dots: FEM nodes (global DOFs)
+        """
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+        plt.subplots_adjust(bottom=0.25)
+
+        # Initial time
+        t0 = 0.0
+
+        # ---------------------------------------------------------------
+        # Exact solution (global fine grid)
+        # ---------------------------------------------------------------
+        x_global = np.linspace(
+            self.mesh.vertices.min(),
+            self.mesh.vertices.max(),
+            1000
+        )
+        line_exact, = ax.plot(
+            x_global,
+            exact_func(x_global, t0),
+            'r-',
+            linewidth=2,
+            label='Exact'
+        )
+
+        # ---------------------------------------------------------------
+        # FEM solution: element-local evaluation
+        # ---------------------------------------------------------------
+        x_plot = []
+        u_plot = []
+
+        for elem_index, elem in enumerate(self.mesh.elements):
+            x_elem = self.mesh.vertices[elem]
+            x_loc = np.linspace(x_elem.min(), x_elem.max(), nloc)
+
+            for x in x_loc:
+                x_plot.append(x)
+                u_plot.append(
+                    self.evaluate_solution_on_element(u[:, 0], elem_index, x)
+                )
+
+        x_plot = np.array(x_plot)
+        u_plot = np.array(u_plot)
+
+        line_num, = ax.plot(
+            x_plot,
+            u_plot,
+            'b-',
+            linewidth=1.5,
+            label='Numerical'
+        )
+
+        # ---------------------------------------------------------------
+        # FEM nodes (global DOFs)
+        # ---------------------------------------------------------------
+        x_nodes = self.mesh.vertices
+        node_plot = ax.plot(
+            x_nodes,
+            u[:, 0],
+            'ko',
+            markersize=4,
+            label='FEM nodes'
+        )[0]
+
+        # ---------------------------------------------------------------
+        # Plot cosmetics
+        # ---------------------------------------------------------------
+        ax.set_xlabel('x')
+        ax.set_ylabel('u')
+        ax.set_title(f'Time = {t0:.3f}')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        # ---------------------------------------------------------------
+        # Time slider
+        # ---------------------------------------------------------------
+        ax_slider = plt.axes([0.25, 0.1, 0.5, 0.03])
+        slider = Slider(
+            ax_slider,
+            'Time step',
+            0,
+            u.shape[1] - 1,
+            valinit=0,
+            valstep=1
+        )
+
+        def update(val):
+            step = int(slider.val)
+            t = step * dt
+
+            # Update exact solution
+            line_exact.set_ydata(exact_func(x_global, t))
+
+            # Update FEM solution
+            k = 0
+            for elem_index, elem in enumerate(self.mesh.elements):
+                x_elem = self.mesh.vertices[elem]
+                x_loc = np.linspace(x_elem.min(), x_elem.max(), nloc)
+
+                for x in x_loc:
+                    u_plot[k] = self.evaluate_solution_on_element(
+                        u[:, step], elem_index, x
+                    )
+                    k += 1
+
+            line_num.set_ydata(u_plot)
+
+            # Update FEM nodes
+            node_plot.set_ydata(u[:, step])
+
+            ax.set_title(f'Time = {t:.3f}')
+            fig.canvas.draw_idle()
+
+        slider.on_changed(update)
         plt.show()

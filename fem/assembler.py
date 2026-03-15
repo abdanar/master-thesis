@@ -11,6 +11,23 @@ if TYPE_CHECKING:
 
 logger = setup_logger(__name__, level = 'info')
 
+#----------------- Assembler for Finite Element Method (FEM) -------------------------
+# The `Assembler` class is responsible for assembling the global stiffness matrix, 
+# convection matrix, mass matrix, and load vector for a given finite element space. 
+# It uses the local integrator to compute the contributions from each element and 
+# assembles them into global sparse matrices and vectors. 
+#
+# The assembler handles both 1D and 2D meshes and supports different types of PDEs by 
+# allowing users to specify diffusion, convection, and reaction coefficients as functions.
+# The assembly process is optimized for efficiency, especially for large meshes, by
+# using sparse matrix formats and minimizing redundant computations.
+#
+# The `coo_array` format is used for efficient assembly of the global matrices, which can 
+# then be converted to more efficient formats (e.g., CSR or CSC) for solving the linear systems.
+# Depending on the solver type, i.e., direct or iterative, the assembler can be configured to 
+# produce matrices in the appropriate format for optimal performance.
+# --------------------------------------------------------------------------------------
+
 class Assembler:
     def __init__(self, femspace: "FEMSpace"):
         self.mesh = femspace.mesh

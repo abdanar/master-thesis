@@ -9,6 +9,14 @@ if TYPE_CHECKING:
 
 logger = setup_logger(__name__, level='info')
 
+# -------------- Boundary Conditions for Finite Element Method (FEM) ------------------
+# The `BoundaryCondition` class is an abstract base class that defines the interface for
+# boundary conditions in finite element problems. It provides a common structure for
+# different types of boundary conditions (e.g., Dirichlet, Neumann, Robin) and requires
+# subclasses to implement the `apply` method, which modifies the system matrix and
+# right-hand side vector to enforce the boundary condition.
+# --------------------------------------------------------------------------------------
+
 class BoundaryCondition(ABC):
     """
     Abstract base class for boundary conditions in finite element problems.

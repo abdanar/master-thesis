@@ -6,6 +6,15 @@ from utils.logger import setup_logger
 
 logger = setup_logger(__name__, level = 'info')
 
+# ---------------- Local Integrator for Finite Element Method (FEM) ----------------------
+# The `LocalIntegrator` class computes element-local matrices and load vectors for 
+# convection-diffusion-reaction problems in 1D or 2D. It evaluates integrals of the form:
+#     - 1D: ∫_I [a(x) du/dx dv/dx + b(x) du/dx v + c(x) u v] dx
+#     - 2D: ∫_T [∇v^T A(x) ∇u + (b(x) · ∇u) v + c(x) u v] dx dy
+# where a(x) or A(x) is the diffusion coefficient, b(x) is the convection coefficient,
+# c(x) is the reaction coefficient, and f(x) is the source term.
+# ---------------------------------------------------------------------------------------
+
 class LocalIntegrator:
     def __init__(self, element: PhysicalElement, quadrature_order: int = 2):
         """

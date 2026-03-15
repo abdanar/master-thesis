@@ -5,6 +5,17 @@ import pymetis
 import triangle as tr
 from utils.logger import setup_logger
 
+# ---------------- Mesh Class for Finite Element Method (FEM) -------------------
+# This class defines a mesh for 1D or 2D domains, including vertices, elements, 
+# edges, and boundary segments. The mesh can be initialized from user-provided vertices 
+# and optional connectivity, or generated using the `Triangle` library for 2D domains.
+# The mesh supports both linear (degree 1) and higher-order elements through an upgrade mechanism.
+# The mesh can be upgraded to include additional nodes along edges and within elements 
+# for higher-degree Lagrange shape functions. 
+#
+# For 1D meshes, elements are line segments between consecutive nodes. For 2D meshes, triangulation
+# is performed using the `Triangle` library if element connectivity is not provided.
+#
 # -------------- Naming conventions for mesh attributes and methods --------------
 # `_node` -> means index
 # `_coord` -> means coordinate

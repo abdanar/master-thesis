@@ -8,7 +8,31 @@ from scipy.sparse.linalg import cg, LinearOperator
 
 logger = setup_logger(__name__, level = 'info')
 
-MatrixValue = np.ndarray | sparray
+#----------------- Linear Solvers for Finite Element Method (FEM) -------------------------
+# The `LinearSolver` class is an abstract base class that defines the interface for linear solvers
+# used in finite element methods. It provides a common structure for both direct and iterative
+# solvers, allowing for flexible implementation of various algorithms. The available solvers include:
+#
+# - `DirectSolver`: A direct solver that computes the exact solution using LU factorization,
+#   supporting both dense and sparse matrices.
+#
+# - `IterativeSolver`: A base class for iterative solvers that provides common functionality and
+#   an iteration error criterion. These solvers do not perform direct factorization and rely on 
+#   convergence criteria to determine when to stop iterating. Available iterative solvers include:
+#
+#   - `JacobiSolver`: An implementation of the Jacobi iterative method, which can be used with
+#     both dense and sparse matrices. It supports weighted (relaxed) iteration for improved
+#     convergence.
+#
+#   - `CGSolver`: An implementation of the Conjugate Gradient method, suitable for
+#     symmetric positive definite matrices, and can also handle both dense and sparse formats.
+#
+# The class includes methods for setting up the solver with a given matrix, resetting any cached 
+# state, and solving linear systems. Subclasses must implement the `solve` method, which takes a 
+# system matrix and right-hand side vector and returns the solution. The design allows for easy 
+# integration of new solvers and supports both dense and sparse matrices, making it suitable for 
+# a wide range of FEM applications.
+# --------------------------------------------------------------------------------------
 
 class LinearSolver(ABC):
     """
@@ -46,7 +70,7 @@ class LinearSolver(ABC):
     >>> print(x)
     [1 2]
     """
-    def setup(self, A: MatrixValue) -> None:
+    def setup(self, A: np.ndarray | sparray) -> None:
         """
         Optional preprocessing step for the solver.
 
@@ -55,7 +79,7 @@ class LinearSolver(ABC):
 
         Parameters
         ----------
-        A : MatrixValue
+        A : np.ndarray or scipy.sparse.sparray
             Dense (`np.ndarray`) or sparse (`sparray`) system matrix.
 
         Notes
@@ -78,13 +102,13 @@ class LinearSolver(ABC):
         pass
 
     @abstractmethod
-    def solve(self, A: MatrixValue, b: np.ndarray, **kwargs: Any) -> np.ndarray:
+    def solve(self, A: np.ndarray | sparray, b: np.ndarray, **kwargs: Any) -> np.ndarray:
         """
         Solve the linear system Ax = b.
 
         Parameters
         ----------
-        A : MatrixValue
+        A : np.ndarray or scipy.sparse.sparray
             Dense (`np.ndarray`) or sparse (`sparray`) system matrix.
         b : np.ndarray
             Right-hand side vector.
@@ -158,13 +182,13 @@ class DirectSolver(LinearSolver):
         """
         self._lu : Any = None
 
-    def setup(self, A: MatrixValue) -> None:
+    def setup(self, A: np.ndarray | sparray) -> None:
         """
         Precompute LU factorization for the given matrix.
 
         Parameters
         ----------
-        A : MatrixValue
+        A : np.ndarray or scipy.sparse.sparray
             Dense (`np.ndarray`) or sparse (`sparray`) matrix to factorize.
 
         Notes
@@ -189,14 +213,14 @@ class DirectSolver(LinearSolver):
         """
         self._lu = None
 
-    def solve(self, A: MatrixValue, b: np.ndarray, **kwargs: Any) -> np.ndarray:
+    def solve(self, A: np.ndarray | sparray, b: np.ndarray, **kwargs: Any) -> np.ndarray:
         """
         Solve the linear system Ax = b using LU factorization.
 
         Parameters
         ----------
-        A : MatrixValue
-            Dense (`np.ndarray`) or sparse (`sparray`) system matrix.
+        A : np.ndarray or scipy.sparse.sparray
+            Dense or sparse system matrix.
         b : np.ndarray
             Right-hand side vector.
         **kwargs : Any
@@ -259,13 +283,13 @@ class IterativeSolver(LinearSolver):
     def __init__(self):
         self._initialized = False
 
-    def setup(self, A: MatrixValue) -> None:
+    def setup(self, A: np.ndarray | sparray) -> None:
         """
         Store matrix sparsity info and ID.
 
         Parameters
         ----------
-        A : MatrixValue
+        A : np.ndarray or scipy.sparse.sparray
             Dense or sparse matrix to store info for iterative use.
 
         Notes
@@ -306,13 +330,13 @@ class IterativeSolver(LinearSolver):
         return float(np.linalg.norm(x_new - x_old, ord=np.inf))
 
     @abstractmethod
-    def solve(self, A: MatrixValue, b: np.ndarray, **kwargs: Any) -> np.ndarray:
+    def solve(self, A: np.ndarray | sparray, b: np.ndarray, **kwargs: Any) -> np.ndarray:
         """
         Abstract method to solve Ax = b iteratively.
 
         Parameters
         ----------
-        A : MatrixValue
+        A : np.ndarray or scipy.sparse.sparray
             Dense or sparse system matrix.
         b : np.ndarray
             Right-hand side vector.
@@ -392,7 +416,7 @@ class JacobiSolver(IterativeSolver):
     def __init__(self):
         super().__init__()
 
-    def solve(self, A: MatrixValue, b: np.ndarray, criterion = None, tol: float = 1e-8, maxiter: int = 1000, 
+    def solve(self, A: np.ndarray | sparray, b: np.ndarray, criterion = None, tol: float = 1e-8, maxiter: int = 1000, 
               relfactor: float = 0.3, x0: np.ndarray | None = None, **kwargs: Any) -> np.ndarray:
         """
         Solve the linear system Ax = b using Jacobi iteration.
@@ -499,7 +523,7 @@ class CGSolver(IterativeSolver):
 
     def solve(
         self,
-        A: MatrixValue,
+        A: np.ndarray | sparray,
         b: np.ndarray,
         atol: float = 0.,
         rtol: float = 1e-5,

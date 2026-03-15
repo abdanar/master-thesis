@@ -1,16 +1,16 @@
 import numpy as np
 from fom.poisson import PoissonProblem
 from fem.femspace import FEMSpace
-from fem.mesh import Mesh
-from logger import setup_logger
-from errornorms import ErrorNorms
+from utils.logger import setup_logger
+from utils.errornorms import ErrorNorms
+from mpi4py import MPI
 
 logger = setup_logger(__name__, level = 'info')
 
 class Schwarz():
 
-    def __init__(self, femspace: FEMSpace, n: int, overlap: int, func, dirichlet_bc: dict, direction: str = 'vertical', method: str = 'RAS', maxiter: int = 100, tol: float = 1e-3, criterion: str = 'boundary'):
-        
+    def __init__(self, femspace: FEMSpace, n: int, overlap: int, func, dirichlet_bc: dict, direction: str = 'vertical', method: str = 'RAS',
+                  omega: float = 1.0, maxiter: int = 100, tol: float = 1e-3, criterion: str = 'boundary', mpi_enabled: bool = False):
         """
         Initialize a Schwarz solver for time-dependent PDEs over a decomposed domain.
 
@@ -35,12 +35,19 @@ class Schwarz():
             Keys are global node indices, values are the corresponding Dirichlet values.
         method : str, default='RAS'
             Waveform relaxation method, either 'RAS' (Restricted Additive Schwarz) or 'AS' (Additive Schwarz).
+        omega : float, optional
+            Relaxation parameter for the Schwarz iteration. The global iterate is updated as
+                u^{k+1} = (1 - omega) u^k + omega * u_tilde^{k+1}.
+            Values 0 < omega <= 1 are allowed. Using omega < 1 stabilizes the additive Schwarz method for multiple overlapping subdomains.
+            Default is 1.0 (no relaxation).
         maxiter : int, default=100
             Maximum number of waveform relaxation iterations.
         tol : float, default=1e-3
             Convergence tolerance for the stopping criterion.
         criterion : str, default='boundary'
             Type of convergence criterion, e.g., 'boundary' for checking subdomain boundary changes.
+        mpi_enabled : bool
+            If True, uses MPI for parallel Schwarz iterations. Each MPI rank owns one or more subdomains.
         """
         self.femspace = femspace
         self.n = n
@@ -49,11 +56,21 @@ class Schwarz():
         self.f = func
         self.dirichlet = dirichlet_bc # Dirichlet boundary condition for the whole domain, for the main problem
         self.method = method
+        self.omega = omega
         self.maxiter = maxiter
         self.tol = tol
         self.criterion = criterion # stopping criterion
         self.nspace = self.femspace.mesh.nnodes() # total number of space nodes (for whole domain)
         self.error_history = []
+        self.mpi_enabled = mpi_enabled
+        if mpi_enabled:
+            self.comm = MPI.COMM_WORLD
+            self.rank = self.comm.Get_rank()
+            self.size = self.comm.Get_size()
+        else:
+            self.rank = 0
+            self.size = 1
+            self.comm = None
     
     def construct_dirichlet_bc(self, domainID: int, maps: dict, data: dict) -> dict:
         """
@@ -176,7 +193,7 @@ class Schwarz():
                 bdindices = subdomain.boundary_vertices()
                 for local_index, global_index in enumerate(local_to_global[i]):
                     if local_index not in bdindices:
-                        global_solution[global_index] += data[i][local_index] 
+                        global_solution[global_index] += data[i][local_index] # sum contributions from all subdomains, to have perfect solution on overlaps remove + sign
         else:
             raise ValueError(f"Invalid method '{self.method}'. Must be 'RAS' or 'AS'.")
         return global_solution
@@ -214,14 +231,20 @@ class Schwarz():
     def initial_data(self) -> dict:
         idata = {}
         for subdomain in self.subdomains:
-            idata[subdomain.domainID] = np.zeros(subdomain.nnodes())
+            idata[subdomain.domainID] = np.zeros((subdomain.nnodes(), 1))
         return idata
 
     def solve(self, history: bool = False, uh = None, exact = None) -> np.ndarray:
 
         logger.info("="*80)
         logger.info("[Schwarz] Starting solver")
-        logger.info(f"Number of subdomains: {len(self.subdomains)} | max iterations: {self.maxiter} | tolerance: {self.tol:.2e}")
+        logger.info(
+            f"Number of subdomains: {len(self.subdomains)} | "
+            f"method: {self.method} | "
+            f"relaxation (omega): {self.omega:.2f} | "
+            f"max iterations: {self.maxiter} | "
+            f"tolerance: {self.tol:.2e}"
+        )
         logger.info("="*80)
 
         error: float = float("inf")
@@ -248,7 +271,11 @@ class Schwarz():
                 logger.info("="*80)
                 break
             else:
-                initial_data = new_data
+                if self.omega == 1.0:
+                    initial_data = new_data
+                else:
+                    for i in initial_data:
+                        initial_data[i] = (1 - self.omega) * initial_data[i] + self.omega * new_data[i]
 
             if history: # store error history
                 schwarz_sol = self.combine(initial_data)

@@ -1,16 +1,14 @@
 import numpy as np
 from fem.refelement import ReferenceElement
 
-# --------------------------------------------------------------------------
-# Physical Element for Finite Element Method (FEM)
-#
+# ------------ Physical Element for Finite Element Method (FEM) ----------------
 # This class defines a single **physical element** in 1D or 2D.
 # A physical element is obtained by mapping a reference element
 # from the standard domain to its actual coordinates in the mesh.
 #
 # The finite element is defined by:
 #   K - physical element domain (interval in 1D, triangle in 2D)
-#   S - space of shape functions (Lagrange FEM)
+#   P - space of shape functions (Lagrange FEM)
 #   N - set of nodal variables (nodes in the physical element)
 #
 # Supported dimensions:

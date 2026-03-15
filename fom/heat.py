@@ -1,15 +1,16 @@
 import sys
 import numpy as np
+from scipy.sparse import coo_array
 from tqdm import trange
 from fem.femspace import FEMSpace
 from fem.assembler import Assembler
-import timestepper as ts
-import logger as log 
+from fem.linearsolver import *
+import utils.logger as log 
 
 logger = log.setup_logger(__name__, level = 'info')
 
 class HeatProblem:
-    def __init__(self, femspace: FEMSpace, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'Theta', theta: float = 0.5):
+    def __init__(self, femspace: FEMSpace, func, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray):
         """
         FEM solver for the time-dependent heat equation:
             - 1D: u_t(x, t) - u_xx(x, t)) = f(x, t),   x ∈ Ω, t ∈ (t0, T)
@@ -32,8 +33,6 @@ class HeatProblem:
             FEM space object
         func : callable
             Source term f(x, t) for 1D or f(x, y, t) for 2D
-        dt : float
-            Time step size
         t0 : float
             Initial time
         T : float
@@ -43,103 +42,94 @@ class HeatProblem:
             values are np.ndarray of length n_steps: {0: [0.0, 0.45, 3.4], ...}
         icond : np.ndarray
             Initial condition vector at t0
-        tstepper : str
-            Time integration method (only 'Theta')
-        theta : float, optional
-            Parameter for the θ-method, 0 < θ ≤ 1. Only used if tstepper='Theta'.
-            Common values:
-                - θ = 1.0  → Backward Euler
-                - θ = 0.5  → Crank-Nicolson
-            Default is 0.5.
         """
         self.femspace = femspace
         self.f = func
-        self.dt = dt
-        self.t0 = t0
-        self.T = T
         self.dirichlet = dirichlet_bc
         self.initial = icond
-        self.tstepper = tstepper
-        self.theta = theta
-        self.ntime = int((T - t0)/dt) + 1 # total number of time nodes (including boundaries)
+        self.t0 = t0
+        self.T = T
         self.dim = femspace.dim
-
-    def assemble_space(self):
-        """
-        Assemble space-dependent matrices (M, A) using the assembler.
-        Returns:
-            M : np.ndarray
-                Mass matrix
-            A : np.ndarray
-                Stiffness matrix
-            assembler : Assembler
-                FEM assembler object
-        """
-        assembler = Assembler(self.femspace)
-
+        self.assembler = Assembler(self.femspace)
+        self.mass_matrix, self.stiffness_matrix = self._assemble_space()
         if self.dim == 2:
-            diffusion = lambda x, y: np.eye(2)
-            reaction  = lambda x, y: 1
-        else:  # 1D
-            diffusion = lambda x: 1
-            reaction  = lambda x: 1
+            self.F = lambda t: self.assembler.global_load_vector(lambda x, y: self.f(x, y, t))
+        else:
+            self.F = lambda t: self.assembler.global_load_vector(lambda x: self.f(x, t))
 
-        logger.debug("Assembling spatial FEM matrices")
-
-        M = assembler.global_mass_matrix(reaction = reaction)
-        logger.debug(f"Mass matrix assembled with shape {M.shape}")
-
-        A = assembler.global_stiffness_matrix(diffusion = diffusion)
-        logger.debug(f"Stiffness matrix assembled with shape {A.shape}")
-
-        return assembler, M, A
-
-    def solve(self) -> np.ndarray:
+    def _assemble_space(self) -> tuple[coo_array, coo_array]:
         """
-        Solve the PDE using the specified time-stepping method.
+        Assemble the global mass and stiffness matrices for the heat equation.
 
         Returns
         -------
-        solution : np.ndarray
-            Each column corresponds to the solution at a specific time step:
-            solution[:, i] = u(x, t_i), with the first column representing the initial condition at t0.
+        mass : coo_array
+            Mass matrix
+        stiffness : coo_array
+            Stiffness matrix
         """
-        # Assemble FEM matrices
-        assembler, M, A = self.assemble_space()
-        nsteps = self.ntime - 1
+        if self.dim == 1:
+            diffusion = lambda x: 1
+            reaction  = lambda x: 1
+        elif self.dim == 2:
+            diffusion = lambda x, y: np.eye(2)
+            reaction  = lambda x, y: 1
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}")
+        mass = self.assembler.global_mass_matrix(reaction = reaction)
+        stiffness = self.assembler.global_stiffness_matrix(diffusion = diffusion)
+        return mass, stiffness
+
+    def lift(self, lift: str = 'nodal', solver: LinearSolver = DirectSolver(), **kwargs) -> np.ndarray:
+        return None
+
+    def _theta(self, dt: float, lift: str = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), **kwargs) -> np.ndarray:
+
+        # Total number of time steps
+        nsteps = int((self.T - self.t0)/dt)
 
         # Pre-allocate solution array: columns are time steps
-        solution = np.zeros((M.shape[0], self.ntime))
-
-        logger.debug(f"Using {self.tstepper} time-stepping | Starting time integration | nsteps = {nsteps}, dt = {self.dt}")
+        solution = np.zeros((self.mass_matrix.shape[0], nsteps + 1))
 
         # Initial solution
-        u_n = self.initial.copy()
-        solution[:, 0] = u_n
+        solution[:, 0] = self.initial
 
-        # Initialize previous step matrices and load vector for Crank-Nicolson
-        if self.dim == 2:
-            func = lambda x, y: self.f(x, y, self.t0)
-        else:  # 1D
-            func = lambda x: self.f(x, self.t0)
-
-        F_prev = assembler.global_load_vector(func)
-
-        A_prev, M_prev = A, M
-
-        # Select time-stepper
-        if self.tstepper == 'Theta':
-            stepper = ts.Theta(M = M, A = A, assembler = assembler, f = self.f, dt = self.dt, t0 = self.t0, dirichlet_bc = self.dirichlet, theta = self.theta)
-        else:
-            raise ValueError(f"Unknown time-stepper: {self.tstepper}")
+        logger.debug(f"Using θ-method time-stepping | Starting time integration | nsteps = {nsteps}, dt = {dt}")
 
         # Time-stepping loop with tqdm
-        t_n = self.t0
+        step = 0
+        t = self.t0
+        u_initial = self.initial
+        load_initial = self.F(t)
         with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, disable = not sys.stdout.isatty()) as pbar:
             for step in pbar:
-                pbar.set_postfix_str(f"\033[93mt={t_n:.3e}\033[0m")  # yellow t
-                if self.tstepper == 'Theta':
-                    u_n, A_prev, M_prev, F_prev = stepper.step(u_n, F_prev, t_n, A_prev, M_prev)
-                t_n += self.dt
-                solution[:, step + 1] = u_n.copy()
+                pbar.set_postfix_str(f"\033[93mt={t:.3e}\033[0m")
+                step += 1
+                t += dt
+                load_vector = self.F(t)
+                lhs = self.mass_matrix + theta*dt*self.stiffness_matrix
+                rhs = (self.mass_matrix - (1 - theta)*dt*self.stiffness_matrix)@u_initial + dt*(theta*load_vector + (1 - theta)*load_initial).ravel()
+                dirichlet = {k: v[step] for k, v in self.dirichlet.items()}
+                lhs, rhs = self.assembler.apply_Dirichlet_bc(lhs, rhs, dirichlet)
+                u = solver.solve(lhs, rhs, **kwargs)
+                solution[:, step + 1] = u
+                u_initial = u
+                load_initial = load_vector
         return solution
+
+    def solve(self, dt: float, lift: str = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), **kwargs) -> np.ndarray:
+
+        if lift == 'nodal':
+            solution = self._theta(dt, lift = lift, theta = theta, solver = solver, **kwargs)
+        elif lift == 'harmonic':
+            boundary = bd.HarmonicDirichletBC(self.femspace, self.dirichlet)
+            lift_vector = boundary.lift
+            solution[:, 0] += lift_vector
+        elif lift == 'parabolic':
+            boundary = 
+            lift_vector = boundary.lift
+            solution[:, 0] += lift_vector[:, 0]
+        else:
+            raise ValueError(f"Unsupported lift method: {lift}")
+        
+        return None

@@ -1,23 +1,28 @@
-from fem.mesh import Mesh
-from fem.refelement import ReferenceElement
-from fem.phyelement import PhysicalElement
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider
+from __future__ import annotations
 from collections import defaultdict
+from typing import TYPE_CHECKING, Callable, Optional
+import numpy as np
+from fem.assembler import Assembler
+from fem.linearsolver import LinearSolver, DirectSolver, IterativeSolver
+from fem.mesh import Mesh
+from fem.phyelement import PhysicalElement
+from fem.refelement import ReferenceElement
+if TYPE_CHECKING:
+    from fem.boundary import DirichletBC
 
-# --------------------------------------------------------------------------
-# FEMSpace class
-#
+# --------------------  FEMSpace class -----------------------------------------
 # Defines the finite element space over a given mesh, including support for 
 # higher-degree Lagrange elements. Recall the Ciarlet definition of a finite element:
+#
 # A finite element is a triplet (K, P, N) where:
+#
 # - K : element domain (e.g., interval, triangle)
 # - P : space of shape functions (e.g., Lagrange polynomials of degree p)
 # - N : set of nodal variables (e.g., point evaluations at nodes)
+#
 # This class encapsulates these concepts and provides functionality to upgrade 
 # meshes for higher-degree elements. It supports both 1D (interval) and 2D (triangular) meshes.
-# --------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 class FEMSpace:
     def __init__(self, mesh: Mesh, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
@@ -61,7 +66,7 @@ class FEMSpace:
         self.domain = domain
         self.space = space
         self.dim = mesh.dim
-        self.mesh = self.upgrade(mesh) if mesh.domainID == 0 and mesh.degree == 1 else mesh # upgrade only if the mesh is the given whole domain
+        self.mesh = self.upgrade(mesh) if mesh.domainID == 0 and mesh.degree == 1 and degree > 1 else mesh # upgrade only if the mesh is the given whole domain
         
     def upgrade(self, mesh: Mesh) -> Mesh:
         """
@@ -214,19 +219,123 @@ class FEMSpace:
         upgraded_mesh.degree = self.degree
         return upgraded_mesh
 
-    # Following features are expected to be here for FEMSpace
-    # - evaluate global FE solution u at a point x; vectorized evaluation at multiple points (for plotting).
-    # - project a function f(x) onto the global FEM space.
-    # - interpolate a function f(x) onto the global FEM space.
-    # - get_physical_element(element_index) → returns PhysicalElement instance for given element index.
-    # + get_shape_functions(element_index) → returns shape functions for given element index.
+    def interpolate(self, f: Callable, boundary: Optional["DirichletBC"] = None) -> np.ndarray:
+        """
+        Interpolate a given function f onto the global FEM space (Lagrange elements). 
+        
+        This method computes the coefficient vector representing the interpolated 
+        function in the FEM space. The interpolation is performed by evaluating the 
+        function f at the global nodes of the mesh and assigning those values 
+        to the corresponding coefficients. Therefore, this (nodal interpolation) 
+        only works for Lagrange finite element spaces where the nodal variables 
+        correspond to point evaluations at the nodes.
+
+        Parameters
+        ----------
+        f : Callable
+            The function to interpolate.
+        boundary : "DirichletBC", optional
+            If provided, the interpolation will be performed only on the 
+            free (non-Dirichlet) nodes. If None, interpolation is performed 
+            on all nodes.
+
+        Returns
+        -------
+        coef : np.ndarray
+            Coefficient vector representing the interpolated function in the FEM space.
+        """
+        if self.space != 'Lagrange':
+            raise ValueError("Interpolation is only implemented for Lagrange finite element spaces where nodal variables correspond to point evaluations at the nodes.")
+        coef = np.zeros(self.mesh.nnodes())
+        indices = self.mesh.dofs if boundary is None else np.setdiff1d(self.mesh.dofs, boundary.dirichlet_nodes)
+        for index in indices:
+            coef[index] = f(self.mesh.vertices[index])
+        return coef
+    
+    def project(self, f: Callable, boundary: Optional["DirichletBC"] = None, solver: LinearSolver = DirectSolver(), **kwargs) -> np.ndarray:
+        """
+        Project a given function f onto the global FEM space using L² projection.
+
+        This method computes a discrete representation of the function f in the finite element 
+        space V_h by solving a linear system involving the mass matrix. The resulting coefficient 
+        vector represents the best approximation of f in the L² sense with respect to the FEM basis.
+
+        Parameters
+        ----------
+        f : Callable
+            The function to project. Can be any Python callable that accepts a point (x) in 1D 
+            or (x, y) in 2D.
+        boundary : DirichletBC, optional
+            If provided, the projection will be performed only on the free (non-Dirichlet) nodes. 
+            If None, projection is performed on all nodes.
+        solver : LinearSolver, optional
+            Linear solver to use for solving the projection linear system. Must inherit from 
+            `LinearSolver`. Default is `DirectSolver()`.
+        **kwargs
+            Additional keyword arguments passed to the solver (e.g., tolerance, maximum iterations).
+
+        Returns
+        -------
+        coef : np.ndarray
+            Coefficient vector representing the projection of f in the FEM space. These coefficients 
+            correspond to the FEM basis functions and can be used to evaluate the projected function 
+            at any point in the domain.
+
+        Notes
+        -----
+        - This method performs an L² projection, which minimizes the L² norm of the error 
+        between f and its projection in the FEM space.
+        - Internally, the method:
+            1. Constructs the global mass matrix M using the `Assembler` class.
+            2. Computes the right-hand side vector b by evaluating f against the FEM basis.
+            3. Solves the linear system M c = b to obtain the projection coefficients c.
+        - L² projection works for any function in L²(Ω), including functions that are not 
+        continuous or smooth, unlike nodal interpolation which requires the function to be 
+        compatible with nodal DOFs.
+        - Currently supports 1D and 2D FEM spaces only.
+        """
+        if self.dim == 1:
+            reaction = lambda x: 1
+        elif self.dim == 2:
+            reaction = lambda x, y: 1
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+        
+        # Create assembler instance internally to access global mass matrix and load vector assembly methods
+        assembler = Assembler(self)
+
+        # Assemble the mass matrix and load vector for the projection
+        mass_matrix = assembler.global_mass_matrix(reaction = reaction)
+        rhs = assembler.global_load_vector(func = f)
+
+        indices = self.mesh.dofs if boundary is None else np.setdiff1d(self.mesh.dofs, boundary.dirichlet_nodes)
+
+        # Choose solver-friendly format (COO format does not directly support slicing)
+        if isinstance(solver, DirectSolver):
+            mass_matrix = mass_matrix.tocsc()
+        elif isinstance(solver, IterativeSolver):
+            mass_matrix = mass_matrix.tocsr()
+        else:
+            raise ValueError("Unsupported solver type. Solver must be an instance of DirectSolver or IterativeSolver.")
+        
+        # Restrict the mass matrix and load vector to the free (non-Dirichlet) nodes
+        mass_matrix = mass_matrix[indices, :][:, indices]
+        rhs = rhs[indices]
+
+        # Solve the linear system M c = rhs for free (non-Dirichlet) dofs
+        cfree = solver.solve(mass_matrix, rhs, **kwargs)
+
+        # Construct full coefficient vector
+        coef = np.zeros(self.mesh.nnodes())
+        coef[indices] = cfree
+        return coef
 
     # change for 1d
     def get_physical_element(self, element_index: int) -> PhysicalElement:
         refelement = ReferenceElement(self.dim, self.domain, self.space, self.degree)
         return PhysicalElement(vertices = self.mesh.vertices[self.mesh.elements[element_index][:3]], ref_element = refelement)
 
-    def get_shape_functions(self, element_index: int) -> dict:
+    def get_shape_functions(self, element_index: int) -> dict[int, Callable]:
         """
         Return the Lagrange shape functions for a specific mesh element,
         keyed by global node indices.
@@ -356,6 +465,9 @@ class FEMSpace:
         # Find the element containing x
         element_index = self.find_element_containing(x)
 
+        if element_index is None:
+            raise ValueError(f"Point {x} is outside the mesh domain and cannot be evaluated.")
+
         # Get the shape functions for this element
         phi_dict = self.get_shape_functions(element_index)
 
@@ -367,209 +479,11 @@ class FEMSpace:
        # Find the element containing x
         element_index = self.find_element_containing(x)
 
+        if element_index is None:
+            raise ValueError(f"Point {x} is outside the mesh domain and cannot be evaluated.")
+
         # Get the grad of shape functions for this element
         grad_phi_dict = self.get_shape_function_gradients(element_index)
 
         # Evaluate u_h(x) = sum(U[g]*gradphi_g(x))
         return sum(U[g]*phi_g(x) for g, phi_g in grad_phi_dict.items())
-
-    def visualize_3d_time_compare(self, u, exact_func, dt, cmap='viridis', nx=100, ny=100):
-        """
-        Compare numeric FEM solution with exact solution on a fine grid for any element degree.
-
-        Parameters
-        ----------
-        exact_func : callable
-            Exact solution function, exact_func(x, y, t).
-        cmap : str
-            Colormap for surfaces.
-        nx, ny : int
-            Resolution of the fine grid for smooth visualization.
-        """
-
-        ntime = u.shape[1]
-
-        # Create fine grid
-        x_grid = np.linspace(0, 1, nx)
-        y_grid = np.linspace(0, 1, ny)
-        X_grid, Y_grid = np.meshgrid(x_grid, y_grid)
-
-        fig = plt.figure(figsize=(14, 6))
-        ax1 = fig.add_subplot(121, projection='3d')
-        ax2 = fig.add_subplot(122, projection='3d')
-        plt.subplots_adjust(bottom=0.25)
-
-        # Initial time step
-        t0 = 0.0
-
-        # Evaluate exact solution
-        Z_exact = exact_func(X_grid, Y_grid, t0)
-        surf1 = ax1.plot_surface(X_grid, Y_grid, Z_exact, cmap=cmap, edgecolor='none')
-        ax1.set_title(f'Exact Solution | t={t0:.3f}')
-        ax1.set_xlabel('x'); ax1.set_ylabel('y'); ax1.set_zlabel('u')
-        fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10, label='u')
-
-        # Evaluate numeric solution on grid using evaluate_solution
-        Z_num = np.zeros_like(X_grid)
-        for i in range(nx):
-            for j in range(ny):
-                Z_num[i, j] = self.evaluate_solution(u[:, 0], [X_grid[i, j], Y_grid[i, j]])
-        surf2 = ax2.plot_surface(X_grid, Y_grid, Z_num, cmap=cmap, edgecolor='k', linewidth=0.2)
-        ax2.set_title(f'Numerical Solution | t={t0:.3f}')
-        ax2.set_xlabel('x'); ax2.set_ylabel('y'); ax2.set_zlabel('u')
-        fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10, label='u')
-
-        # Time slider
-        ax_slider = plt.axes((0.25, 0.1, 0.5, 0.03))
-        time_slider = Slider(ax_slider, 'Time step', 0, ntime-1, valinit=0, valstep=1)
-
-        def update(val):
-            step = int(time_slider.val)
-            t = step*dt
-
-            # Clear axes
-            ax1.cla()
-            ax2.cla()
-
-            # Exact solution
-            Z_exact = exact_func(X_grid, Y_grid, t)
-            ax1.plot_surface(X_grid, Y_grid, Z_exact, cmap=cmap, edgecolor='none')
-            ax1.set_title(f'Exact Solution | t={t:.3f}')
-            ax1.set_xlabel('x'); ax1.set_ylabel('y'); ax1.set_zlabel('u')
-
-            # Numeric solution interpolated on grid
-            Z_num = np.zeros_like(X_grid)
-            for i in range(nx):
-                for j in range(ny):
-                    Z_num[i, j] = self.evaluate_solution(u[:, step], [X_grid[i, j], Y_grid[i, j]])
-            ax2.plot_surface(X_grid, Y_grid, Z_num, cmap=cmap, edgecolor='k', linewidth=0.2)
-            ax2.set_title(f'Numerical Solution | t={t:.3f}')
-            ax2.set_xlabel('x'); ax2.set_ylabel('y'); ax2.set_zlabel('u')
-
-            fig.canvas.draw_idle()
-
-        time_slider.on_changed(update)
-        plt.show()
-    
-
-    def visualize_1d_time_compare(self, u, exact_func, dt, nloc=20):
-        """
-        Correct 1D FEM visualization for any polynomial degree.
-
-        - Red line: exact solution
-        - Blue line: FEM solution (element-local evaluation)
-        - Black dots: FEM nodes (global DOFs)
-        """
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-        plt.subplots_adjust(bottom=0.25)
-
-        # Initial time
-        t0 = 0.0
-
-        # ---------------------------------------------------------------
-        # Exact solution (global fine grid)
-        # ---------------------------------------------------------------
-        x_global = np.linspace(
-            self.mesh.vertices.min(),
-            self.mesh.vertices.max(),
-            1000
-        )
-        line_exact, = ax.plot(
-            x_global,
-            exact_func(x_global, t0),
-            'r-',
-            linewidth=2,
-            label='Exact'
-        )
-
-        # ---------------------------------------------------------------
-        # FEM solution: element-local evaluation
-        # ---------------------------------------------------------------
-        x_plot = []
-        u_plot = []
-
-        for elem_index, elem in enumerate(self.mesh.elements):
-            x_elem = self.mesh.vertices[elem]
-            x_loc = np.linspace(x_elem.min(), x_elem.max(), nloc)
-
-            for x in x_loc:
-                x_plot.append(x)
-                u_plot.append(
-                    self.evaluate_solution_on_element(u[:, 0], elem_index, x)
-                )
-
-        x_plot = np.array(x_plot)
-        u_plot = np.array(u_plot)
-
-        line_num, = ax.plot(
-            x_plot,
-            u_plot,
-            'b-',
-            linewidth=1.5,
-            label='Numerical'
-        )
-
-        # ---------------------------------------------------------------
-        # FEM nodes (global DOFs)
-        # ---------------------------------------------------------------
-        x_nodes = self.mesh.vertices
-        node_plot = ax.plot(
-            x_nodes,
-            u[:, 0],
-            'ko',
-            markersize=4,
-            label='FEM nodes'
-        )[0]
-
-        # ---------------------------------------------------------------
-        # Plot cosmetics
-        # ---------------------------------------------------------------
-        ax.set_xlabel('x')
-        ax.set_ylabel('u')
-        ax.set_title(f'Time = {t0:.3f}')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-        # ---------------------------------------------------------------
-        # Time slider
-        # ---------------------------------------------------------------
-        ax_slider = plt.axes([0.25, 0.1, 0.5, 0.03])
-        slider = Slider(
-            ax_slider,
-            'Time step',
-            0,
-            u.shape[1] - 1,
-            valinit=0,
-            valstep=1
-        )
-
-        def update(val):
-            step = int(slider.val)
-            t = step * dt
-
-            # Update exact solution
-            line_exact.set_ydata(exact_func(x_global, t))
-
-            # Update FEM solution
-            k = 0
-            for elem_index, elem in enumerate(self.mesh.elements):
-                x_elem = self.mesh.vertices[elem]
-                x_loc = np.linspace(x_elem.min(), x_elem.max(), nloc)
-
-                for x in x_loc:
-                    u_plot[k] = self.evaluate_solution_on_element(
-                        u[:, step], elem_index, x
-                    )
-                    k += 1
-
-            line_num.set_ydata(u_plot)
-
-            # Update FEM nodes
-            node_plot.set_ydata(u[:, step])
-
-            ax.set_title(f'Time = {t:.3f}')
-            fig.canvas.draw_idle()
-
-        slider.on_changed(update)
-        plt.show()

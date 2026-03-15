@@ -1,13 +1,13 @@
 import numpy as np
 from fom.heat import HeatProblem
 from fem.femspace import FEMSpace
-from logger import setup_logger
+from utils.logger import setup_logger
 
 logger = setup_logger(__name__, level = 'info')
 
 class WaveformRelaxation():
 
-    def __init__(self, femspace: FEMSpace, n: int, overlap: int, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'Theta', theta: float = 0.5, method: str = 'RAS', maxiter: int = 100, tol: float = 1e-3, criterion: str = 'boundary'):
+    def __init__(self, femspace: FEMSpace, n: int, overlap: int, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'Theta', theta: float = 0.5, method: str = 'RAS', omega: float = 1.0, maxiter: int = 100, tol: float = 1e-3, criterion: str = 'boundary'):
         
         """
         Initialize a Waveform Relaxation solver for time-dependent PDEs over a decomposed domain.
@@ -39,6 +39,11 @@ class WaveformRelaxation():
             Parameter for the θ-method, 0 < θ ≤ 1. Only used if tstepper='Theta'.
         method : str, default='RAS'
             Waveform relaxation method, either 'RAS' (Restricted Additive Schwarz) or 'AS' (Additive Schwarz).
+        omega : float, optional
+            Relaxation parameter for the Schwarz iteration. The global iterate is updated as
+                u^{k+1} = (1 - omega) u^k + omega * u_tilde^{k+1}.
+            Values 0 < omega <= 1 are allowed. Using omega < 1 stabilizes the additive Schwarz method for multiple overlapping subdomains.
+            Default is 1.0 (no relaxation).
         maxiter : int, default=100
             Maximum number of waveform relaxation iterations.
         tol : float, default=1e-3
@@ -59,6 +64,7 @@ class WaveformRelaxation():
         self.tstepper = tstepper
         self.theta = theta
         self.method = method
+        self.omega = omega
         self.maxiter = maxiter
         self.tol = tol
         self.criterion = criterion # stopping criterion
@@ -319,7 +325,11 @@ class WaveformRelaxation():
                 logger.info("="*80)
                 break
             else:
-                initial_data = new_data
+                if self.omega == 1.0:
+                    initial_data = new_data
+                else:
+                    for i in initial_data:
+                        initial_data[i] = (1 - self.omega) * initial_data[i] + self.omega * new_data[i]
         else:
             logger.warning(f"[Waveform Relaxation] Reached max iterations ({self.maxiter}) with error = {error:.6e}")
         

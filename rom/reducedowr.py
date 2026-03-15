@@ -1,14 +1,18 @@
 import numpy as np
+from fem.femspace import FEMSpace
+from fem.assembler import Assembler
 from fom.heat import HeatProblem
 from rom.heatrom import HeatROM
-from fem.femspace import FEMSpace
-from logger import setup_logger
+from utils.errornorms import ErrorNorms
+from utils.logger import setup_logger
 
 logger = setup_logger(__name__, level = 'info')
 
 class ReducedWaveformRelaxation():
 
-    def __init__(self, femspace: FEMSpace, n: int, overlap: int, r: int, func, dt: float, t0: float, T: float, dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'Theta', theta: float = 0.5, method: str = 'RAS', maxiter: int = 100, tol: float = 1e-3, criterion: str = 'boundary'):
+    def __init__(self, femspace: FEMSpace, n: int, overlap: int, r: int, nsnap: int, func, dt: float, t0: float, T: float, 
+                 dirichlet_bc: dict, icond: np.ndarray, tstepper: str = 'Theta', theta: float = 0.5, method: str = 'RAS', maxiter: int = 100, 
+                 tol: float = 1e-3, criterion: str = 'boundary'):
         """
         Initialize a Reduced Order Waveform Relaxation solver for time-dependent PDEs over a decomposed domain.
 
@@ -22,6 +26,8 @@ class ReducedWaveformRelaxation():
             Number of overlapping layers between subdomains (0 for non-overlapping decomposition).
         r : int
             Reduced order
+        nsnap : int
+            Number of snapshots to use for POD basis construction.
         func : callable
             Source function of the PDE, e.g., f(x, t).
         dt : float
@@ -52,6 +58,7 @@ class ReducedWaveformRelaxation():
         self.n = n
         self.overlap = overlap
         self.r = r
+        self.nsnap = nsnap
         self.subdomains, self.ltog, self.maps, _ = self.femspace.mesh.decompose(n = n, overlap = overlap)  # list of subdomains of type `Mesh` and dict of local to global mappings
         self.f = func
         self.dt = dt
@@ -67,9 +74,79 @@ class ReducedWaveformRelaxation():
         self.criterion = criterion # stopping criterion
         self.ntime = int((T - t0)/dt) + 1 # total number of time nodes
         self.nspace = self.femspace.mesh.nnodes() # total number of space nodes (for whole domain)
-        self.basis = {}  # dictionary: domainID -> basis matrix (Store reduced bases for all subdomains)
+        self.basis = self.setup_bases()  # dictionary: domainID -> basis matrix (Store reduced bases for all subdomains)
+        self.error_history = []
+        self.time = np.arange(self.t0, self.T + self.dt, self.dt)
     
-    def construct_basis(self, domainID: int) -> np.ndarray:
+    def restriction_matrix(self, domainID: int) -> np.ndarray:
+        """
+        Construct the restriction matrix for a specific subdomain.
+        The restriction matrix maps the global degrees of freedom (DOFs) to the local DOFs
+        of the specified subdomain. (It includes all DOFs, both interior and boundary.)
+
+        Parameters
+        ----------
+        domainID : int
+            Identifier of the subdomain.
+        
+        Returns
+        -------
+        np.ndarray
+            Restriction matrix of shape (local_dofs, global_dofs) for the specified subdomain.
+        """
+        restriction_matrix = np.zeros((self.subdomains[domainID - 1].nnodes(), self.nspace)) 
+        local_to_global = self.ltog[domainID]
+        for local_node, global_node in enumerate(local_to_global):
+            restriction_matrix[local_node, global_node] = 1
+        return restriction_matrix
+    
+    def snapshot_matrix(self) -> np.ndarray:
+        Heat_solver = HeatProblem(
+                    femspace = self.femspace,
+                    func = self.f, 
+                    dt = (self.T - self.t0)/(self.nsnap - 1), 
+                    t0 = self.t0, 
+                    T = self.T, 
+                    dirichlet_bc = self.dirichlet, 
+                    icond = self.initial, 
+                    tstepper = 'Theta',
+                    theta = self.theta)
+        return Heat_solver.solve()
+    
+    def pod_basis(self, domainID: int, smatrix: np.ndarray) -> np.ndarray:
+        """
+        Construct the POD basis for a specific subdomain.
+
+        The POD basis is built by restricting the full-order FEM solution
+        to the given subdomain and performing Proper Orthogonal Decomposition (POD)
+        on this restricted data to generate a local reduced space associated with the subdomain.
+
+        Parameters
+        ----------
+        domainID : int
+            Identifier of the subdomain.
+
+        Returns
+        -------
+        np.ndarray
+            POD basis matrix for the subdomain, whose columns form
+            a basis of the local reduced space.
+        """
+        # Restriction matrix for the subdomain
+        R = self.restriction_matrix(domainID)
+
+        # Collect snapshots restricted to the subdomain
+        snapshot_matrix = R @ smatrix  # Shape: (local_dofs, nsnap)
+
+        # Perform SVD on the snapshot matrix
+        U, _, _ = np.linalg.svd(snapshot_matrix, full_matrices=False)
+
+        # Select the first r modes as the POD basis
+        pod_basis = U[:, :self.r]  # Shape: (local_dofs, r)
+
+        return pod_basis
+
+    def construct_basis(self, domainID: int, smatrix: np.ndarray, method: str = 'POD') -> np.ndarray:
         """
         Construct the reduced basis for a specific subdomain.
 
@@ -89,11 +166,43 @@ class ReducedWaveformRelaxation():
             a basis of the local reduced space.
         """
 
-        return None
-    
+        if method == 'POD':
+            return self.pod_basis(domainID, smatrix)
+        else:
+            raise ValueError(f"Invalid basis construction method '{method}'. Only 'POD' is supported.")
+
     def setup_bases(self):
+        basis = {}
         for domainID in range(1, self.n + 1):
-            self.basis[domainID] = self.construct_basis(domainID)
+            subd = self.subdomains[domainID - 1]
+            n = subd.nnodes()                  # total nodes
+            bnodes = set(self.maps[domainID].keys())  # boundary node indices
+            interior_nodes = [i for i in range(n) if i not in bnodes]
+            r = len(interior_nodes)            # reduced dim = number of interior nodes
+
+            # Initialize Phi_i with zeros
+            mat = np.zeros((n, r))
+
+            # Fill identity on interior DOFs
+            for col, i in enumerate(interior_nodes):
+                mat[i, col] = 1.0
+
+            basis[domainID] = mat
+
+        return basis
+    
+    # def setup_bases(self):
+    #     basis = {}
+    #     # smatrix = self.snapshot_matrix()  # collect snapshots for the whole domain
+    #     for domainID in range(1, self.n + 1):
+    #         n = self.subdomains[domainID - 1].nnodes()
+    #         bnodes = self.maps[domainID].keys()
+    #         mat = np.zeros((n, n - len(bnodes)))
+    #         for i in range(n):
+    #             if i not in bnodes:
+    #                 mat[i, i] = 1.0
+    #         basis[domainID] = mat #np.eye(self.subdomains[domainID - 1].nnodes()) #self.construct_basis(domainID, smatrix) #np.eye(self.subdomains[domainID - 1].nnodes())
+    #     return basis
 
     def construct_dirichlet_bc(self, domainID: int, maps: dict, data: dict) -> dict:
         """
@@ -236,18 +345,9 @@ class ReducedWaveformRelaxation():
                     if local_index not in bdindices:
                         global_solution[global_index, :] += data[i][local_index, :] # notice that if you remove +, then you will get perfect plot, but for AS, local solutions should be plotted
                         count[global_index] += 1
-
             for ix in range(self.nspace):
                 if count[ix] > 0:
                     global_solution[ix, :] /= count[ix]
-
-            # for below construct_dirichlet_bc function should be changed accordingly
-            # seen = set()
-            # for i in range(1, self.n + 1):
-            #     for local_index, global_index in enumerate(local_to_global[i]):
-            #         if global_index not in seen:
-            #             global_solution[global_index, :] = data[i][local_index, :]
-            #             seen.add(global_index)
         elif self.method == 'AS':
             for subdomain in self.subdomains:
                 i = subdomain.domainID
@@ -255,17 +355,6 @@ class ReducedWaveformRelaxation():
                 for local_index, global_index in enumerate(local_to_global[i]):
                     if local_index not in bdindices:
                         global_solution[global_index, :] += data[i][local_index, :] # notice that if you remove +, then you will get perfect plot, but for AS, local solutions should be plotted
-
-            # previously
-            # count = np.zeros(self.nspace)  # counts how many subdomains contribute to each global DOF
-            # for i in range(1, self.n + 1):
-            #     for local_index, global_index in enumerate(local_to_global[i]):
-            #         global_solution[global_index, :] += data[i][local_index, :]
-            #         count[global_index] += 1
-            # # divide by number of contributions to average overlaps
-            # for idx in range(self.nspace):
-            #     if count[idx] > 0:
-            #         global_solution[idx, :] /= count[idx]
         else:
             raise ValueError(f"Invalid method '{self.method}'. Must be 'RAS' or 'AS'.")
         
@@ -304,22 +393,62 @@ class ReducedWaveformRelaxation():
                 max_diff = diff
         return max_diff
     
+    def dirichlet_vector(self, domainID: int, data: dict) -> np.ndarray:
+        dvector = np.zeros((self.subdomains[domainID - 1].nnodes(), self.ntime))
+        for dindex, dvalue in data.items():
+            dvector[dindex, :] = dvalue
+        return dvector
+    
     def initial_data(self) -> dict:
         idata = {}
         for subdomain in self.subdomains:
             idata[subdomain.domainID] = np.zeros((subdomain.nnodes(), self.ntime))
         return idata
+
+    def offline(self):
+        
+        # Here we will compute all offline computations
+
+        if self.femspace.dim == 2:
+            diffusion = lambda x, y: np.eye(2)
+            reaction  = lambda x, y: 1
+        else:  # 1D
+            diffusion = lambda x: 1
+            reaction  = lambda x: 1
+
+        m1 = {} # Phi.T M_i
+        m2 = {} # Phi.T K_i = Phi.T (M_i + delta t A_i)
+        m3 = {} # Phi.T M_i Phi
+        m4 = {} # Phi.T K_i Phi = Phi.T (M_i + delta t A_i) Phi
+
+        for subdomain in self.subdomains:
+            domainid = subdomain.domainID
+            subspace = FEMSpace(mesh = subdomain, domain = self.femspace.domain, space = self.femspace.space, degree = self.femspace.degree)
+            assembler = Assembler(subspace)
+            mass = assembler.global_mass_matrix(reaction = reaction)
+            stiffness = assembler.global_stiffness_matrix(diffusion = diffusion)
+            m1[domainid] = self.basis[domainid].T @ mass
+            m2[domainid] = self.basis[domainid].T @ (mass + self.dt*stiffness)
+            m3[domainid] = m1[domainid] @ self.basis[domainid]
+            m4[domainid] = m2[domainid] @ self.basis[domainid]
+
+        return m1, m2, m3, m4
     
-
-
-    def solve(self) -> np.ndarray:
+    def solve(self, history: bool = False, uh = None, exact = None) -> np.ndarray:
 
         logger.info("="*80)
         logger.info("[Reduced Order Waveform Relaxation] Starting solver")
-        logger.info(f"Number of subdomains: {len(self.subdomains)} | max iterations: {self.maxiter} | tolerance: {self.tol:.2e}")
+        logger.info(
+            f"Number of subdomains: {len(self.subdomains)} | "
+            f"method: {self.method} | "
+            f"max iterations: {self.maxiter} | "
+            f"tolerance: {self.tol:.2e}"
+        )
         logger.info("="*80)
 
         error: float = float("inf")
+
+        m1, m2, m3, m4 = self.offline()
 
         initial_data = self.initial_data()
 
@@ -328,10 +457,12 @@ class ReducedWaveformRelaxation():
             for subdomain in self.subdomains:
                 domainid = subdomain.domainID
                 initial_cond = self.construct_initial(domainid)
-                dirichlet_bc = self.construct_dirichlet_bc(domainID = domainid, maps = self.maps, data = initial_data)
+                dirichlet_data = self.construct_dirichlet_bc(domainID = domainid, maps = self.maps, data = initial_data)
+                dirichlet_bc = self.dirichlet_vector(domainID = domainid, data = dirichlet_data)
                 logger.debug(f"The constructed dirichlet boundary conditions for a subdomain {domainid} in iteration {iter + 1}: {dirichlet_bc}")
-                subdomain_heat = HeatProblem(
+                subdomain_heat = HeatROM(
                     femspace = FEMSpace(mesh = subdomain, domain = self.femspace.domain, space = self.femspace.space, degree = self.femspace.degree),
+                    basis = self.basis[domainid],
                     func = self.f, 
                     dt = self.dt, 
                     t0 = self.t0, 
@@ -339,9 +470,9 @@ class ReducedWaveformRelaxation():
                     dirichlet_bc = dirichlet_bc, 
                     icond = initial_cond, 
                     tstepper = self.tstepper,
-                    theta = self.theta)
-                subdomain_heat_rom =  HeatROM(fom = subdomain_heat, basis = self.basis[domainid], tstepper = self.tstepper, theta = self.theta)
-                new_data[domainid] = subdomain_heat_rom.solve()
+                    theta = self.theta, 
+                    offline = [m1[domainid], m2[domainid], m3[domainid], m4[domainid]])
+                new_data[domainid] = subdomain_heat.solve()
 
             error = self.boundary_criterion(initial_data, new_data)
 
@@ -353,6 +484,11 @@ class ReducedWaveformRelaxation():
                 break
             else:
                 initial_data = new_data
+
+            if history: # store error history
+                rowr_sol = self.combine(initial_data)
+                est = ErrorNorms(femspace = self.femspace, u1 = rowr_sol, u2 = uh, u_exact = exact, time = self.time)
+                self.error_history.append(est.compute(norm = 'l2'))
         else:
             logger.warning(f"[Reduced Order Waveform Relaxation] Reached max iterations ({self.maxiter}) with error = {error:.6e}")
         

@@ -1,8 +1,6 @@
 import numpy as np
 
-# --------------------------------------------------------------------------
-# Reference Element for Finite Element Method (FEM)
-#
+# ---------------- Reference Element for Finite Element Method (FEM) -------------------
 # This class defines a single **reference element**. A reference element
 # serves as a standard template for all elements of the same type in the mesh.
 # Actual physical elements are mapped from this reference element using
@@ -10,7 +8,7 @@ import numpy as np
 #
 # The finite element is defined by:
 #   K - element domain (e.g., interval, triangle, quadrilateral)
-#   S - space of shape functions (e.g., Lagrange, Hermite)
+#   P - space of shape functions (e.g., Lagrange, Hermite)
 #   N - the set of nodal variables (nodes in the reference element)
 #
 # Supported dimensions:

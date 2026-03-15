@@ -1,7 +1,8 @@
 import numpy as np
+from typing import Callable
 from fem.phyelement import PhysicalElement
 from fem.quadrature import triangle_quadrature, interval_quadrature
-from logger import setup_logger
+from utils.logger import setup_logger
 
 logger = setup_logger(__name__, level = 'info')
 
@@ -75,7 +76,7 @@ class LocalIntegrator:
         else:
             raise NotImplementedError("Quadrature for the given element domain and dimension is not implemented.")
 
-    def local_stiffness_matrix(self, diffusion) -> np.ndarray:
+    def local_stiffness_matrix(self, diffusion: Callable) -> np.ndarray:
         """
         Compute the element-local stiffness matrix for 1D or 2D Lagrange elements.
 
@@ -99,7 +100,7 @@ class LocalIntegrator:
 
         Parameters
         ----------
-        diffusion : callable
+        diffusion : Callable
             - 1D: a(x) -> scalar diffusion coefficient at point x
             - 2D: A(x, y) -> 2x2 diffusion matrix at point (x, y)
 
@@ -161,7 +162,7 @@ class LocalIntegrator:
                 raise NotImplementedError(f"local_stiffness_matrix not implemented for dim={self.element.ref_element.dim}")
         return K 
 
-    def local_convection_matrix(self, convection) -> np.ndarray:
+    def local_convection_matrix(self, convection: Callable) -> np.ndarray:
         """
         Compute the element-local convection (advection) matrix for a 2D triangular element.
 
@@ -181,7 +182,7 @@ class LocalIntegrator:
 
         Parameters
         ----------
-        convection : callable
+        convection : Callable
             Convection/advection function:
             - 1D: convection(x) -> scalar
             - 2D: convection(x, y) -> length-2 NumPy array
@@ -245,7 +246,7 @@ class LocalIntegrator:
                 raise NotImplementedError(f"local_convection_matrix not implemented for dim={self.element.ref_element.dim}")
         return C
 
-    def local_mass_matrix(self, reaction) -> np.ndarray:
+    def local_mass_matrix(self, reaction: Callable) -> np.ndarray:
         """
         Compute the element-local mass (reaction) matrix for 1D or 2D Lagrange elements.
 
@@ -316,7 +317,7 @@ class LocalIntegrator:
                     M[i, j] += weight * detJ * react_val * phi_vals[i] * phi_vals[j]
         return M
           
-    def local_load_vector(self, func) -> np.ndarray:
+    def local_load_vector(self, func: Callable) -> np.ndarray:
         """
         Compute the element-local load (source) vector for 1D or 2D Lagrange elements.
 
@@ -336,7 +337,7 @@ class LocalIntegrator:
 
         Parameters
         ----------
-        func : callable
+        func : Callable
             Source term function:
             - 1D: func(x) -> scalar
             - 2D: func(x, y) -> scalar
@@ -382,4 +383,3 @@ class LocalIntegrator:
             for i in range(nbasis):
                 F[i] += weight * detJ * func_val * phi_vals[i]
         return F
-    

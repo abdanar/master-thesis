@@ -1,28 +1,35 @@
-import itertools as it
 from collections import defaultdict
-from collections import Counter
+import itertools as it
 import numpy as np
-import triangle as tr
 import pymetis
-from fem.phyelement import PhysicalElement
-from fem.refelement import ReferenceElement
-from logger import setup_logger
+import triangle as tr
+from utils.logger import setup_logger
+
+# -------------- Naming conventions for mesh attributes and methods --------------
+# `_node` -> means index
+# `_coord` -> means coordinate
+# `vertices` -> geometric vertices of the mesh (original input vertices, excluding edge/interior nodes added by upgrade)
+# `elements` -> connectivity array defining elements (triangles in 2D, line segments in 1D)
+# `edges` -> connectivity array defining edges (line segments in 2D, points in 1D)
+# ---------------------------------------------------------------------------------
 
 logger = setup_logger(__name__, level = 'info')
 
 class Mesh:
-    def __init__(self, vertices: np.ndarray, elements = None, segments = None, holes = None, domainID: int = 0, dim: int = 2, options: str = 'qa0.1'):
+    def __init__(self, vertices: np.ndarray, elements = None, segments = None, segment_markers = None, holes = None, domainID: int = 0, dim: int = 2, options: str = 'qa0.1'):
         """
         Initialize a Mesh object for 1D or 2D domains.
 
         Parameters
         ----------
-        vertices : array-like
-            Coordinates of the vertices. In 1D, shape (n,), in 2D, shape (n,2).
+        vertices : np.ndarray
+            Coordinates of the vertices. In 1D, shape (n,), in 2D, shape (n, 2).
         elements : array-like, optional
             Element connectivity. If provided, triangulation is skipped.
         segments : array-like, optional
             Boundary segments for 2D triangulation.
+        segment_markers : array-like, optional
+            Markers for the boundary segments.
         holes : array-like, optional
             Holes in the 2D domain.
         domainID : int, default=0
@@ -35,10 +42,10 @@ class Mesh:
         Notes
         -----
         - By default, the mesh represents linear (degree 1) elements. If the mesh is upgraded
-            for higher-degree Lagrange shape functions using `upgrade()`, new vertices (edge 
+            for higher-degree Lagrange shape functions using `upgrade()`, new nodes (edge 
             and interior nodes) will be added and element connectivity will be updated accordingly.
-        - In 1D, elements are line segments between consecutive vertices.
-        - In 2D, triangulation is performed using the Triangle library if `elements` is None. 
+        - In 1D, elements are line segments between consecutive nodes.
+        - In 2D, triangulation is performed using the `Triangle` library if `elements` is None. 
             If `elements` is provided, triangulation is skipped.
         - In 2D, the final set of vertices may differ from the user-provided 
             vertices depending on the `options` passed to the Triangle library.
@@ -46,168 +53,50 @@ class Mesh:
         - `domainID=0` is reserved for the whole domain; subdomains should use positive integers.
         """
         self.degree = 1 # default polynomial degree (can be upgraded later by FEMSpace)
-        self.dim = dim
-        self.domainID = domainID
+        self.dim = dim # dimension of the mesh (1D or 2D)
+        self.domainID = domainID # identifier for the domain (0 for whole domain, positive integers for subdomains)
+        self.options = options
         self.vertices = np.asarray(vertices)
-        self.options = Mesh.parse_options(options)
-        self.is_structured = 'st' in self.options
-
+        self.holes = holes
         if dim == 1:
             if elements is None:
-                self.vertices = self.vertices.reshape(-1)
-                self.elements = np.array([[i, i + 1] for i in range(len(self.vertices) - 1)], dtype = int)
+                n = len(self.vertices)
+                self.elements = np.column_stack((np.arange(n-1), np.arange(1, n)))
             else:
-                self.elements = np.asarray(elements)
+                self.elements = np.asarray(elements, dtype=int)
             self.segments = None
-            self.holes = None
-            self.options = 'nothing'
+            self.segment_markers = None
         elif dim == 2:
-            if elements is None: # only triangulate if elements are not provided
-                if self.is_structured:
-                    self._generate_structured_rectangle(opts = self.options)
-                else:
-                    data = {"vertices": vertices}
-                    if segments is not None:
-                        data["segments"] = segments
-                    if holes is not None:
-                        data["holes"] = holes
-                    triangulation = tr.triangulate(tri = data, opts = options)
-                    self.vertices = triangulation['vertices']
-                    self.elements = triangulation['triangles']
+            if elements is None:
+                data = {"vertices": vertices}
+                if segments is not None:
+                    data["segments"] = segments
+                if segment_markers is not None:
+                    data["segment_markers"] = segment_markers
+                if holes is not None:
+                    data["holes"] = holes
+                triangulation = tr.triangulate(tri = data, opts = options)
+                self.vertices = triangulation['vertices']
+                self.elements = triangulation['triangles']
+                self.segments = triangulation.get("segments", None)
+                markers = triangulation.get("segment_markers", None)
+                self.segment_markers = None if markers is None else markers.flatten()
             else:
-                self.elements = np.asarray(elements)
-            self.nx, self.ny = (self.get_structured_grid_size() if self.is_structured else (None, None))
-            self.segments = segments
-            self.holes = holes
-            self.options = options
+                self.elements = np.asarray(elements, dtype=int)
+                if segments is not None:
+                    self.segments = np.asarray(segments, dtype=int)
+                if segment_markers is not None:
+                    self.segment_markers = np.asarray(segment_markers, dtype=int).flatten()
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-    
-    @staticmethod
-    def parse_options(options):
-        """
-        Converts options string into a dictionary.
-        'st,Nx=6,Ny=5' -> {'st': True, 'Nx':6, 'Ny':5}
-        """
-        opts = {}
-        if options is None:
-            return opts
-        for item in options.split(','):
-            item = item.strip()
-            if '=' in item:
-                k, v = item.split('=')
-                opts[k.strip()] = float(v)
-            else:
-                opts[item] = True
-        return opts
-    
-    def get_structured_grid_size(self):
-        """
-        Compute Nx and Ny for an existing structured rectangular mesh.
-
-        Returns
-        -------
-        Nx : int
-            Number of points along x-direction
-        Ny : int
-            Number of points along y-direction
-        """
-        x_unique = np.unique(self.vertices[:, 0])
-        y_unique = np.unique(self.vertices[:, 1])
-
-        Nx = len(x_unique)
-        Ny = len(y_unique)
-
-        return Nx, Ny
-    
-    def _generate_structured_rectangle(self, opts):
-        """
-        Generate a structured rectangular mesh from the current vertex bounds.
-
-        This function constructs a uniform structured grid over the rectangular
-        domain defined by the current vertex coordinates (`self.vertices`). It 
-        updates the mesh vertices and elements (triangles) in a row-major order
-        along the x-direction with a fixed diagonal for each cell.
-
-        The mesh can be defined either by the number of points in x and y
-        directions (`Nx`, `Ny`) or by the desired spacing (`dx`, `dy`).
-
-        Parameters
-        ----------
-        opts : dict
-            A dictionary containing mesh generation options. Possible keys:
-            - 'Nx' : int, optional
-                Number of points along the x-direction (default: 10)
-            - 'Ny' : int, optional
-                Number of points along the y-direction (default: 10)
-            - 'dx' : float, optional
-                Desired spacing between points in x-direction. Overrides 'Nx' if provided.
-            - 'dy' : float, optional
-                Desired spacing between points in y-direction. Overrides 'Ny' if provided.
-
-        Updates
-        -------
-        self.vertices : np.ndarray of shape (Nx*Ny, 2)
-            Coordinates of all mesh vertices in the structured grid. 
-            Vertices are ordered in **x-major, y-minor** order (row-wise along x).
-
-        self.elements : np.ndarray of shape (2*(Nx-1)*(Ny-1), 3)
-            Triangle connectivity array. Each element is a list of three vertex
-            indices. Each rectangular cell is split into two triangles with a 
-            fixed diagonal ([p0, p1, p2] and [p0, p2, p3]).
-
-        Notes
-        -----
-        - This function assumes that the initial vertices define a rectangular 
-        domain (or at least that `xmin`, `xmax`, `ymin`, `ymax` define the
-        bounding rectangle for the mesh).
-        - For a consistent triangle orientation and FEM assembly, the diagonal
-        of each rectangle is fixed from bottom-left to top-right.
-        - This method is intended only for structured rectangular grids.
-        """
-        verts = self.vertices
-        xmin, ymin = verts[:,0].min(), verts[:,1].min()
-        xmax, ymax = verts[:,0].max(), verts[:,1].max()
-
-        # Determine spacing
-        if 'dx' in opts:
-            dx = opts['dx']
-            Nx = int((xmax - xmin)/dx) + 1
-        else:
-            Nx = int(opts.get('Nx', 10))
-            dx = (xmax - xmin)/(Nx-1)
-
-        if 'dy' in opts:
-            dy = opts['dy']
-            Ny = int((ymax - ymin)/dy) + 1
-        else:
-            Ny = int(opts.get('Ny', 10))
-            dy = (ymax - ymin)/(Ny-1)
-
-        # Generate structured vertices
-        x = np.linspace(xmin, xmax, Nx)
-        y = np.linspace(ymin, ymax, Ny)
-        X, Y = np.meshgrid(x, y, indexing='ij')
-        self.vertices = np.column_stack([X.ravel(), Y.ravel()])
-
-        # Generate triangles with fixed diagonal
-        elements = []
-        for i in range(Nx-1):
-            for j in range(Ny-1):
-                p0 = i*Ny + j
-                p1 = (i+1)*Ny + j
-                p2 = (i+1)*Ny + (j+1)
-                p3 = i*Ny + (j+1)
-                elements.append([p0,p1,p2])
-                elements.append([p0,p2,p3])
-        self.elements = np.array(elements, dtype=int)
+        self.dofs = np.unique(self.elements) # global DoF indices used by the FEM discretization (initially just vertex indices, but can include edge/interior nodes after upgrade)
 
     def nnodes(self) -> int:
         """
         Return the total number of mesh nodes.
 
         This counts all nodes used by the FEM discretization. If the mesh
-        has been upgraded, this includes geometric vertices as well as
+        has been upgraded, this also includes geometric vertices as well as
         edge and interior (element) nodes.
 
         Returns
@@ -224,21 +113,6 @@ class Mesh:
         Geometric vertices are the original mesh vertices, excluding any
         additional edge or interior nodes introduced by higher-order
         discretizations or mesh upgrades.
-
-        Behavior
-        --------
-        - For linear meshes (degree = 1), this simply returns the total
-          number of vertices.
-        - For higher-degree 1D meshes, it returns the number of endpoints
-          per element, i.e., number of elements + 1.
-        - For higher-degree 2D meshes, it computes the geometric vertices
-          by subtracting the edge and interior nodes added by the upgrade.
-
-        Notes
-        -----
-        - In 1D, these are the endpoints of the mesh intervals.
-        - In 2D, these are the corner vertices of the mesh elements.
-        - Only 1D and 2D meshes are supported.
 
         Returns
         -------
@@ -260,10 +134,6 @@ class Mesh:
     def nelements(self) -> int:
         """
         Return the total number of elements in the mesh.
-
-        Works for both 1D and 2D meshes:
-        - In 1D, each element is a line segment.
-        - In 2D, each element is a triangle.
 
         Returns
         -------
@@ -319,13 +189,38 @@ class Mesh:
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
 
-    def edges(self, element) -> set:
+    def get_nodes(self, seg_markers: list | np.ndarray) -> np.ndarray:
+        """
+        Return the array of node indices that belong to segments with specified markers.
+
+        Parameters
+        ----------
+        seg_markers : list | np.ndarray
+            List or array of segment markers to filter by. Nodes belonging to segments with these markers will be returned.
+        
+        Returns
+        -------
+        nodes : np.ndarray
+            Array of node indices that belong to segments with the specified markers.
+
+        Raises
+        ------
+        ValueError
+            If `self.segments` or `self.segment_markers` is not defined, which are required for this method to work.
+        """
+        if self.segments is None or self.segment_markers is None:
+            raise ValueError("Segments and segment_markers must be defined for this method to work.")
+        mask = np.isin(self.segment_markers, seg_markers)
+        nodes = np.unique(self.segments[mask])
+        return nodes
+
+    def edges(self, element : list[int] | np.ndarray) -> set[tuple[int, int]]:
         """
         Return the set of edges for a given element in the mesh.
 
         Parameters
         ----------
-        element : array-like of int
+        element : list[int] | np.ndarray
             Global node indices defining the element.
             - For 1D: sequence of vertex indices along the line segment (including interior nodes if upgraded).
             - For 2D linear triangles (degree=1): three corner vertices.
@@ -656,20 +551,20 @@ class Mesh:
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
 
-    def boundary_vertices(self) -> set[int]:
+    def boundary_nodes(self) -> set[int]:
         """
-        Return the set of indices of vertices lying on the boundary of the mesh.
+        Return the set of indices of nodes lying on the boundary of the mesh.
 
         For 1D meshes, the boundary consists of the two endpoints of the domain.
 
-        For 2D meshes, the boundary vertices are defined as all vertices that belong 
+        For 2D meshes, the boundary nodes are defined as all nodes that belong 
         to at least one boundary edge. This method first computes the boundary edges 
-        using `self.boundary_edges()` and then collects all unique vertex indices.
+        using `self.boundary_edges()` and then collects all unique node indices.
 
         Returns
         -------
-        bdvertices : set
-            Set of vertex indices located on the boundary of the mesh.
+        bdnodes : set
+            Set of node indices located on the boundary of the mesh.
 
         Example
         -------
@@ -685,21 +580,21 @@ class Mesh:
 
             {(0,1), (0,2), (1,3), (2,4), (3,4)}
 
-        Then the boundary vertices returned by this method will be:
+        Then the boundary nodes returned by this method will be:
 
             {0, 1, 2, 3, 4}
 
         Notes
         -----
-        - In 1D, the returned set contains exactly two vertices, corresponding to
+        - In 1D, the returned set contains exactly two nodes, corresponding to
           the endpoints of the mesh.
-        - In 2D, the returned set contains all vertices that appear in at least one
+        - In 2D, the returned set contains all nodes that appear in at least one
           boundary edge.
         - Uses `itertools.chain.from_iterable` to flatten all boundary edges into a
-        single sequence of vertex indices.
-        - The result is a set, so each vertex appears only once.
+        single sequence of node indices.
+        - The result is a set, so each node appears only once.
         - Useful for applying boundary conditions, visualization, or identifying
-        mesh boundary vertices.
+          mesh boundary nodes.
         """
         if self.dim == 1:
             edges = set() # all edges
@@ -714,30 +609,26 @@ class Mesh:
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
     
-    def boundary_nodes(self) -> np.ndarray:
+    def boundary_nodes_coord(self) -> np.ndarray:
         """
-        Return the coordinates of all boundary vertices of the domain as a NumPy array.
-
-        For 1D meshes, the boundary consists of the two endpoints of the domain.
-        For 2D meshes, the boundary vertices are those that belong to at least one
-        boundary edge, as identified by `self.boundary_vertices()`.
+        Return the coordinates of all boundary nodes.
 
         Returns
         -------
         bdnodes : ndarray, shape (num_boundary_nodes, dim)
-            Array of coordinates of boundary vertices.
+            Array of coordinates of boundary nodes.
         """
-        bdvertices = np.array(list(self.boundary_vertices()), dtype=int)       # indices of boundary vertices
-        return np.array(self.vertices[bdvertices])  # shape (num_boundary_nodes, dim)
+        bdnodes = np.array(list(self.boundary_nodes()), dtype=int)       # indices of boundary nodes
+        return np.array(self.vertices[bdnodes])  # shape (num_boundary_nodes, dim)
 
     def boundary_elements(self) -> set:
         """
         Return the set of elements that touch the boundary of the mesh.
 
         An element is considered a boundary element if at least one of its
-        vertices lies on the boundary. This method first computes the boundary
-        vertices using `self.boundary_vertices()` and then collects all elements
-        that share at least one of these vertices.
+        nodes lies on the boundary. This method first computes the boundary
+        nodes using `self.boundary_nodes()` and then collects all elements
+        that share at least one of these nodes.
 
         Returns
         -------
@@ -754,7 +645,7 @@ class Mesh:
                 [2, 3, 4]   # triangle 2
             ]
 
-        If the boundary vertices are:
+        If the boundary nodes are:
 
             {0, 1, 2, 3, 4}
 
@@ -767,12 +658,12 @@ class Mesh:
         - Uses set intersection (`&`) to check if an element shares any boundary vertices.
         - Returns elements as tuples, preserving vertex indices.
         - Useful for applying boundary conditions, visualization, or identifying
-        boundary regions in a mesh.
+          boundary regions in a mesh.
         """
-        bdvertices = self.boundary_vertices()
+        bdnodes = self.boundary_nodes()
         bdelem = set()
         for element in self.elements:
-            if set(element) & bdvertices:
+            if set(element) & bdnodes:
                 bdelem.add(tuple(element))
         return bdelem
     
@@ -785,51 +676,36 @@ class Mesh:
         Parameters
         ----------
         edge : tuple
-            A tuple of two vertex indices (i, j) representing the edge. 
-            The order of vertices does not matter.
+            A tuple of two node indices (i, j) representing the edge. 
+            The order of nodes does not matter.
 
         Returns
         -------
         bool
             True if the edge is a boundary edge, False otherwise.
-
-        Example
-        -------
-        If the mesh boundary edges are {(0,1), (0,2), (1,3)}, then:
-
-            self.is_boundary_edge((0,1))  # True
-            self.is_boundary_edge((1,2))  # False
         """
         return edge in self.boundary_edges()
 
-    def is_boundary_element(self, element) -> bool:
+    def is_boundary_element(self, element: list | np.ndarray) -> bool:
         """
-        Check whether a given element touches the boundary of the mesh.
+        Check whether a given element is a boundary element.
 
-        An element is considered a boundary element if at least one of its vertices
+        An element is considered a boundary element if at least one of its nodes
         lies on a boundary edge.
 
         Parameters
         ----------
-        element : list or tuple
-            A triangle represented as a list or tuple of vertex indices, e.g., [0, 1, 2].
+        element : list or np.ndarray
+            A list or array of node indices representing the element.
 
         Returns
         -------
         bool
-            True if the triangle is a boundary triangle, False otherwise.
-
-        Example
-        -------
-        If the boundary vertices are {0, 1, 2, 3}, then:
-
-            self.is_boundary_element([0, 1, 2])  # True
-            self.is_boundary_element([4, 5, 6])  # False
+            True if the element is a boundary element, False otherwise.
         """
-        return bool(set(element) & self.boundary_vertices())
+        return bool(set(element) & self.boundary_nodes())
     
     def interval_decompose(self, n: int, overlap: int = 0):
-
         """
         Split a 1D grid into overlapping subdomains.
 
@@ -876,66 +752,9 @@ class Mesh:
             start += subsize
         
         return subdomains
-    
-    def vertical_membership(self, num_parts_x):
-        """
-        Generate membership array for vertical partitions.
-        
-        Parameters
-        ----------
-        mesh : Mesh
-            Mesh object containing structured vertices and elements.
-        num_parts_x : int
-            Number of vertical partitions.
-        
-        Returns
-        -------
-        membership : np.ndarray
-            Array of length len(mesh.elements) indicating partition index for each element.
-        """
-        Nx, Ny = self.nx, self.ny
-        membership = np.zeros(len(self.elements), dtype=int)
-        cols_per_part = Nx // num_parts_x
-        
-        for elem_idx, elem in enumerate(self.elements):
-            # Average column index of triangle vertices
-            col_avg = sum(v // Ny for v in elem) / 3
-            part = min(int(col_avg // cols_per_part), num_parts_x - 1)
-            membership[elem_idx] = part
-            
-        return membership
-    
-    def horizontal_membership(self, num_parts_y):
-        """
-        Generate membership array for horizontal partitions.
-        
-        Parameters
-        ----------
-        mesh : Mesh
-            Mesh object containing structured vertices and elements.
-        num_parts_y : int
-            Number of horizontal partitions.
-        
-        Returns
-        -------
-        membership : np.ndarray
-            Array of length len(mesh.elements) indicating partition index for each element.
-        """
-        Ny = self.ny
-        membership = np.zeros(len(self.elements), dtype=int)
-        rows_per_part = Ny // num_parts_y
-        
-        for elem_idx, elem in enumerate(self.elements):
-            # Average row index of triangle vertices
-            row_avg = sum(v % Ny for v in elem) / 3
-            part = min(int(row_avg // rows_per_part), num_parts_y - 1)
-            membership[elem_idx] = part
-            
-        return membership
-    
 
     # For optimization, split this function to several parts!
-    def decompose(self, n: int, overlap: int = 0, direction: str = 'vertical', edge_weights = None): # Element-based partitioning
+    def decompose(self, n: int, overlap: int = 0, mtype: str = 'unstructured', edge_weights = None): # Element-based partitioning
         """
         Decompose the mesh into `n` subdomains using PyMetis, with optional overlapping layers.
 
@@ -1137,7 +956,7 @@ class Mesh:
         every triangle in the original mesh to its subdomain, so you can use it
         as a color array to show different subdomains in a plot. (non-overlapping version only)
         """
-        def local_boundary_vertices(elements, restricted: bool = True) -> set:
+        def local_boundary_nodes(elements, restricted: bool = True) -> set:
             """
             Extract boundary vertices from a collection of mesh elements.
 
@@ -1289,22 +1108,10 @@ class Mesh:
             """
             return np.unique(np.concatenate(elements))
 
-        if self.is_structured: # for structured mesh, membership array is constructed using the fact that mesh is row-wise in x-direction!
-            if direction == 'vertical':
-                membership = self.vertical_membership(n)
-            elif direction == 'horizontal':
-                membership = self.horizontal_membership(n)
-            else:
-                # Create adjacency list and partition using PyMetis
-                adjdict = self.adjacency()
-                adjlist = [sorted(list(adjdict[i])) for i in range(len(self.elements))]
-                _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
-                # raise ValueError(f"Unsupported direction: {direction}. Only vertical and horizontal directions are supported.")
-        else:
-            # Create adjacency list and partition using PyMetis
-            adjdict = self.adjacency()
-            adjlist = [sorted(list(adjdict[i])) for i in range(len(self.elements))]
-            _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
+        # Create adjacency list and partition using PyMetis
+        adjdict = self.adjacency()
+        adjlist = [sorted(list(adjdict[i])) for i in range(len(self.elements))]
+        _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
 
         # Assign elements to subdomains
         subdomains_elements = {j: [] for j in range(1, n + 1)}
@@ -1318,7 +1125,7 @@ class Mesh:
             elements = self.elements
             new_elements = {i: set(tuple(e) for e in subdomains_elements[i]) for i in range(1, n + 1)}
             for sindex, selements in subdomains_elements.items():
-                bvertices = local_boundary_vertices(selements)
+                bvertices = local_boundary_nodes(selements)
                 for bvertex in bvertices:
                     for element in elements:
                         if bvertex in element:
@@ -1327,10 +1134,10 @@ class Mesh:
                                 selements.append(element)
                                 new_elements[sindex].add(element_tuple)
 
-        boundary_vertices = dict() # domainID: {boundary vertices of the domain with domainID in domainID = 0 (whole mesh) global indexing}
-        boundary_vertices[0] = self.boundary_vertices() # whole boundary vertices
+        boundary_nodes = dict() # domainID: {boundary vertices of the domain with domainID in domainID = 0 (whole mesh) global indexing}
+        boundary_nodes[0] = self.boundary_nodes() # whole boundary vertices
         for k in range(1, n + 1):
-            boundary_vertices[k] = local_boundary_vertices(subdomains_elements[k], restricted = False)
+            boundary_nodes[k] = local_boundary_nodes(subdomains_elements[k], restricted = False)
 
         # Build local meshes: extract subdomain DOFs, define global <--> local index mapping, and relabel elements to local numbering.
         subdomains = []
@@ -1351,13 +1158,13 @@ class Mesh:
         subdomain_maps = dict()
         for s in range(1, n + 1):
             maps = defaultdict(list)
-            wintersection = boundary_vertices[0] & boundary_vertices[s]
+            wintersection = boundary_nodes[0] & boundary_nodes[s]
             for w in wintersection: # This is for the boundary nodes of the subdomain that shares with whole boundary nodes
                 maps[global_to_local_mappings[s][w]].append((0, w))
             for t in range(1, n + 1):
                 if t == s:
                     continue
-                aintersection = boundary_vertices[s] & set(nodes(subdomains_elements[t]))
+                aintersection = boundary_nodes[s] & set(nodes(subdomains_elements[t]))
                 for a in aintersection:
                     maps[global_to_local_mappings[s][a]].append((t, global_to_local_mappings[t][a]))
             subdomain_maps[s] = maps
@@ -1365,7 +1172,7 @@ class Mesh:
         # Note that returned `membership` array is for non-overlapping domain decomposition!
         return subdomains, local_to_global_mappings, subdomain_maps, np.array(membership, dtype = int)
 
-    def is_in_interval(self, point: float, interval: np.ndarray, tol: float = 1e-12) -> bool:
+    def is_in_interval(self, point: float, interval: list | np.ndarray, tol: float = 1e-12) -> bool:
         """
         Check if a point lies inside a 1D interval (including endpoints).
 
@@ -1373,7 +1180,7 @@ class Mesh:
         ----------
         point : float
             The coordinate of the point.
-        interval : array-like, shape (2,)
+        interval : list or np.ndarray, shape (2,)
             Coordinates of the interval endpoints [x0, x1].
         tol : float
             Numerical tolerance.
@@ -1386,14 +1193,14 @@ class Mesh:
         x0, x1 = interval
         return x0 - tol <= point <= x1 + tol
 
-    def is_in_triangle(self, point: np.ndarray, triangle: np.ndarray, tol: float = 1e-12) -> bool:
+    def is_in_triangle(self, point: list | np.ndarray, triangle: np.ndarray, tol: float = 1e-12) -> bool:
         """
         Check if a point lies inside a triangle (including edges and vertices)
         using barycentric coordinates.
 
         Parameters
         ----------
-        point : array-like, shape (2,)
+        point : list | np.ndarray, shape (2,)
             The (x, y) coordinates of the point.
         triangle : array-like, shape (3, 2)
             Triangle vertices.
@@ -1405,6 +1212,7 @@ class Mesh:
         bool
             True if point is inside the triangle or on its boundary.
         """
+        point = np.asarray(point)
         a, b, c = triangle
 
         v0 = b - a
@@ -1419,7 +1227,6 @@ class Mesh:
 
         denom = dot00 * dot11 - dot01 * dot01
         if abs(denom) < tol:
-            # Degenerate triangle
             return False
 
         invDenom = 1.0 / denom
@@ -1428,13 +1235,13 @@ class Mesh:
 
         return (u >= -tol and v >= -tol and u + v <= 1.0 + tol)
     
-    def locate_triangle(self, point: np.ndarray) -> int | None:
+    def locate_triangle(self, point: list | np.ndarray) -> int | None:
         """
         Return the index of the triangle that contains the given point.
 
         Parameters
         ----------
-        point : array-like
+        point : list | np.ndarray, shape (2,)
             The (x, y) coordinates of the point.
 
         Returns
@@ -1452,8 +1259,6 @@ class Mesh:
         - If the point lies on a shared edge or at a vertex, it belongs to multiple
           elements; in this case, one of the adjacent elements is returned
           (the first encountered in the element loop).
-        - This behavior is sufficient for continuous FEM, where finite element
-          functions are single-valued across element interfaces.
         """
         for i, triangle in enumerate(self.elements):
             vertices = self.vertices[triangle[:3]]
@@ -1512,34 +1317,7 @@ class Mesh:
             return areas
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-    
-    # not modified
-    def barycenters(self) -> np.ndarray:
-        """
-        Compute the barycenters (centroids) of triangular elements in the mesh.
-
-        Returns
-        -------
-        numpy.ndarray
-            An array of shape (n_elements, 2), where each row contains the
-            [x, y] coordinates of the barycenter of a triangle.
         
-        Notes
-        -----
-        The barycenter of a triangle with vertices v1, v2, v3 is computed as:
-        
-            barycenter = (v1 + v2 + v3)/3.
-
-        This method assumes that `self.vertices` is a NumPy array of shape (n_vertices, 2)
-        and `self.elements` is a NumPy array of shape (n_elements, 3), containing
-        the indices of vertices for each triangle.
-        """
-        barycenters = np.zeros((self.nelements(), 2))
-        for i, triangle in enumerate(self.elements):
-            vertices = self.vertices[triangle]
-            barycenters[i] = np.mean(vertices, axis = 0)  
-        return barycenters
-    
     # Human-readable summary
     def __str__(self):
         element_type = "lines" if self.dim == 1 else "triangles"
@@ -1550,20 +1328,20 @@ class Mesh:
 
     # Detailed debugging info
     def __repr__(self):
-        return (f"Mesh(vertices={self.vertices}, "
+        return (f"Mesh(nodes={self.vertices}, "
                 f"elements={self.elements}, "
                 f"segments={self.segments}, holes={self.holes}, "
                 f"dim={self.dim}, options='{self.options}')")
 
-    # information about the mesh (more detailed)
+    # Information about the mesh (more detailed)
     def info(self):
         """
         Return a human-readable summary of the mesh.
         Works for both 1D (lines) and 2D (triangles) meshes.
         """
-        num_vertices = self.vertices.shape[0]
+        num_nodes = self.nnodes()
         num_elements = self.elements.shape[0]
-        num_boundary_vertices = len(self.boundary_vertices())
+        num_boundary_nodes = len(self.boundary_nodes())
         total_measure  = np.sum(self.measures()) # Total measure: length for 1D, area for 2D
         element_type = "lines" if self.dim == 1 else "triangles"
         num_boundary_elements = len(self.boundary_elements()) if self.dim == 2 else 2  # In 1D, there are always 2 boundary elements (the two endpoints)
@@ -1571,9 +1349,9 @@ class Mesh:
         f"Mesh Information:\n"
         f"  Dimension: {self.dim}D\n"
         f"  Domain ID: {self.domainID}\n"
-        f"  Number of vertices: {num_vertices}\n"
-        f"  Number of inner vertices: {num_vertices - num_boundary_vertices}\n"
+        f"  Number of nodes: {num_nodes}\n"
         f"  Number of elements ({element_type}): {num_elements}\n"
+        f"  Number of boundary nodes: {num_boundary_nodes}\n"
         f"  Number of boundary elements: {num_boundary_elements}\n"
         f"  Total measure ({'length' if self.dim == 1 else 'area'}): {total_measure}")
         return information

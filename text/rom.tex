@@ -1,0 +1,702 @@
+\documentclass[a4paper, 11pt]{article}
+\usepackage{graphicx} % Required for inserting images
+
+% pseudocode 
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{underscore}
+
+\usepackage{enumitem}
+
+\usepackage{hyperref}
+
+\usepackage{amssymb, amsfonts, amsmath, amsthm}
+
+\makeatletter
+\newcommand\xlongrightarrow[2][]{%
+  \ext@arrow 9999{\longleftrightarrowfill@}{#1}{#2}}
+\newcommand\longrightarrowfill@{%
+  \arrowfill@\leftarrow\relbar\rightarrow}
+\makeatother
+
+\theoremstyle{plain} 
+\newtheorem{theorem}[equation]{Theorem} 
+\newtheorem{corollary}[equation]{Corollary} 
+\newtheorem{lemma}[equation]{Lemma} 
+\newtheorem{proposition}[equation]{Proposition}
+
+\theoremstyle{definition} 
+\newtheorem{definition}[equation]{Definition} 
+
+\theoremstyle{remark} 
+\newtheorem{remark}[equation]{Remark} 
+\newtheorem{ex}[equation]{Example} 
+\newtheorem{notation}[equation]{Notation} 
+\newtheorem{terminology}[equation]{Terminology}
+
+\title{Algebraic Formulation of Reduced Order Waveform Relaxation Method}
+\author{Anar Abdullayev\thanks{Faculty of Mathematics and Computer Science, University of Münster}}
+\date{\today}
+
+\usepackage{geometry}
+\geometry{
+a4paper, 
+left = 2.4cm,
+right = 2.4cm,
+top = 2.54cm,
+bottom = 2.54cm
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+    In this document, we present the algebraic formulation of the overlapping waveform relaxation method for solving parabolic partial differential equations using the finite element method. We derive the discrete equations for each subdomain, incorporating Dirichlet boundary conditions and interface conditions. The formulation includes the construction of local system matrices, Dirichlet projection matrices, and trace matrices to facilitate communication between subdomains. We also discuss the implementation of partition of unity matrices for averaging interface values when nodes are shared among multiple subdomains. Finally, we outline the global reconstruction of the solution from local subdomain solutions.
+\end{abstract}
+
+\section{Overlapping Waveform Relaxation Method}
+Assume that you are asked to solve the following heat problem
+\begin{align*}
+    \dfrac{\partial u}{\partial t} &= \Delta u + f,\\
+    u(x, t_{0}) &= g(x), \qquad x\in \Omega,\\
+    u(x, t) &= h(x, t), \qquad x\in \partial\Omega, \quad t_0<t<T.
+\end{align*}
+The overlapping waveform relaxation solves in each subdomain $\Omega_i$ (assume that we have $s$ many subdomains) the following problem in iteration $k+1$
+\begin{align*}
+    \dfrac{\partial u_{i}^{k+1}}{\partial t} &= \Delta u_{i}^{k+1} + f,\\
+    u_{i}^{k+1}(x, t_{0}) &= g(x), \qquad x\in \Omega_{i},\\
+    u_{i}^{k+1}(x, t) &= h(x, t), \qquad x\in \Gamma_{i0}, \quad t_0<t<T,\\
+    u_{i}^{k+1}(x, t) &= u_{j}^{k}(x, t), \qquad x\in \Gamma_{ij}, \quad t_0<t<T,
+\end{align*}
+where $\Gamma_{ij}$ for $j\neq 0$ is defined as
+\begin{equation*}
+    \Gamma_{ij} = \left(\Gamma_{i}\cap\Omega_{j}\right)\setminus \Gamma_{i0}
+\end{equation*}
+and
+\begin{equation*}
+    \Gamma_{i0} = \partial \Omega_{i} \cap \partial\Omega.
+\end{equation*}
+Thus, the boundary of the subdomain $\Omega_{i}$ can be written as
+\begin{equation*}
+    \Gamma_{i} = \Gamma_{i0} \cup \bigcup_{j\in \mathcal{N}_{i}}\Gamma_{ij},
+\end{equation*}
+where the \textit{neighbor index set} is defined as
+\begin{equation*}
+    \mathcal{N}_{i} = \{j\in \{1, \ldots, s\}: \left(\partial\Omega_{i}\cap\Omega_{j}\right)\setminus \partial\Omega \neq \emptyset\}.
+\end{equation*}
+The weak (or variational) formulation is
+\begin{equation*}
+    \int_{\Omega_{i}}\partial_{t} u_{i}^{k+1} v\,dx + \int_{\Omega_{i}}\nabla u_{i}^{k+1} \cdot \nabla v\,dx = \int_{\Omega_{i}}fv\,dx.
+\end{equation*}
+Define
+\begin{equation*}
+    m(\partial_{t} u, v) = \int_{\Omega_{i}}\partial_{t} u v\,dx, \qquad a(u, v) = \int_{\Omega_{i}}\nabla u \cdot \nabla v\,dx, 
+\end{equation*}
+which implies
+\begin{equation*}
+    m(\partial_{t} u_{i}^{k+1}, v) + a(u_{i}^{k+1}, v) = (f, v).
+\end{equation*}
+For each subdomain $\Omega_{i}$, let us define the \textit{local index set}
+\begin{equation*}
+    \mathcal{I}_{i} := \{j: \text{supp}(\varphi_{j})\cup \Omega_{i} \neq \emptyset\}.
+\end{equation*}
+Let $n_{i} = \lvert \mathcal{I}_{i}\rvert$, and introduce a local numbering
+\begin{equation*}
+    \mathcal{I}_{i} = \{j_{i, 1}, \ldots, j_{i, n_{i}}\}.
+\end{equation*}
+The local finite element basis on $\Omega_{i}$ is given by the 
+\begin{equation*}
+    \{\left.\varphi_{j_{i, m}}\right|_{\Omega_{i}}\}^{n_{i}}_{m=1}.
+\end{equation*}
+Note that the basis functions are exactly the global FEM basis functions, only restricted to the subdomain $\Omega_{i}$. Then, we have
+\begin{equation*}
+    u^{k+1}_{i, h}(x, t) = \sum_{m = 1}^{n_i}\alpha^{k+1}_{i, m}(t)\varphi_{j_{i, m}}(x), \quad x\in \Omega_{i}.
+\end{equation*}
+Inserting this form into the weak form, we get
+\begin{equation*}
+    \sum_{m = 1}^{n_i}m(\varphi_{j_{i, m}}, \varphi_{j_{i, l}})\dot{\alpha}^{k+1}_{i, m}(t) + \sum_{m = 1}^{n_i}a(\varphi_{j_{i, m}}, \varphi_{j_{i, l}})\alpha^{k+1}_{i, m}(t) = (f, \varphi_{j_{i, m}}).
+\end{equation*}
+We can write this as a linear system of ODEs for $\alpha_{i}^{k+1}(t) = (\alpha^{k+1}_{i, 1}(t), \ldots, \alpha^{k+1}_{i, n_{1}}(t))\in \mathbb{R}^{n_{1}}$
+\begin{equation*}
+    M_{i}\dot{\alpha}_{i}^{k+1}(t) + A_{i}\alpha_{i}^{k+1}(t) = F_{i}(t),
+\end{equation*}
+where
+\begin{equation*}
+    M_{i, lk} = m(\varphi_{i, k}, \varphi_{i, l}), \qquad A_{i, lk} = a(\varphi_{i, k}, \varphi_{i, l}), \qquad F_{i, l} = (f, \varphi_{i, k}).
+\end{equation*}
+The next step is to use a time discretization. Here, let us use backward Euler (implicit Euler) to get
+\begin{equation*}
+    \left(M_{i} + \Delta t A_{i}\right)\alpha_{i}^{l+1, k+1} = M_{i} \alpha_{i}^{l, k+1} + \Delta tF_{i}^{l+1}.
+\end{equation*}
+Now, it is time to apply boundary conditions. Let us rename the following matrices
+\begin{equation*}
+    K_{i} = M_{i} + \Delta t A_{i}, \qquad b_{i} = M_{i} \alpha_{i}^{l, k+1} + \Delta tF_{i}^{l+1}, 
+\end{equation*}
+which simplifies the above system to
+\begin{equation*}
+    K_{i}\alpha_{i}^{l+1, k+1} = b_{i}.
+\end{equation*}
+Considering the number of introduced indices, let us explicitly state what $\alpha_{i}^{l+1, k+1}$ is. It is the coefficient vector obtained in the $k+1$-th iteration for the subdomain $i$ at the time step $l+1$. Let $\text{Node}(\Omega_{i})$ denote the set of local node indices in subdomain $\Omega_{i}$. Define \textit{physical boundary nodes}
+\begin{equation*}
+    B_{i0} = \{p\in \text{Node}(\Omega_{i}): x_{p}\in \Gamma_{i0}\},
+\end{equation*}
+and \textit{interface nodes} with neighbor $\Omega_{j}$
+\begin{equation*}
+    B_{ij} = \{p\in \text{Node}(\Omega_{i}): x_{p}\in \Gamma_{ij}\},
+\end{equation*}
+where $x_p$ is the physical coordinate of the local node $p$. Then the Dirichlet index set for the subdomain $\Omega_{i}$ is
+\begin{equation*}
+    B_{i} := B_{i0} \cup \bigcup_{j\in\mathcal N_i} B_{ij}.
+\end{equation*}
+To apply boundary conditions, we define the \textit{local Dirichlet vector} 
+\begin{equation*}
+    d^{l+1, k+1}_{i} \in \mathbb{R}^{n_{i}},
+\end{equation*}
+such that
+\begin{equation*}
+    \left[d^{l+1, k+1}_{i}\right]_{p} = 
+    \begin{cases}
+        \left[H^{l+1}\right]_{\mathcal{M}_{i0}(p)}, & p\in B_{i0},\\[3pt]
+        \dfrac{1}{\lvert \mathcal{N}_{i}(p)\rvert}\sum\limits_{j\in\mathcal{N}_{i}(p)}\left[\alpha^{l+1, k}_{j}\right]_{\mathcal{M}_{ij}(p)}, & p\in B_{ij},\\
+        0, & \text{otherwise},
+    \end{cases}
+\end{equation*}
+where $H^{l+1}\in \mathbb{R}^{n}$
+\begin{equation*}
+    \left[H^{l+1}\right]_{p} = 
+    \begin{cases}
+        h(x_{p}, t_{l+1}), & p\in B,\\
+        0, & \text{otherwise},
+    \end{cases}
+\end{equation*}
+is the \textit{global Dirichlet vector},
+\begin{equation*}
+    \mathcal{M}_{i0} : B_{i0} \to \text{Node}(\partial\Omega)
+\end{equation*}
+is the map that assigns each local boundary node $p \in B_{i0}$ in subdomain $\Omega_i$ to the corresponding global boundary node on $\partial\Omega$,
+\begin{equation*}
+    \mathcal{M}_{ij} : B_{ij} \to \text{Node}(\Omega_{j})
+\end{equation*}
+is the map that assigns each local interface node $p \in B_{ij}$ in subdomain $\Omega_i$ to the corresponding local node in the neighboring subdomain $\Omega_j$, and
+\begin{equation*}
+    \mathcal{N}_{i}(p) = \left\{j \in \mathcal{N}_{i}: p\in B_{ij}\right\}
+\end{equation*}
+is the set of neighbors that share the node $p$. Let us now deep dive into why we take 
+\begin{equation*}
+    \left[d^{l+1, k+1}_{i}\right]_{p} = \dfrac{1}{\lvert \mathcal{N}_{i}(p)\rvert}\sum\limits_{j\in\mathcal{N}_{i}(p)}\left[\alpha^{l+1, k}_{j}\right]_{\mathcal{M}_{ij}(p)}, \qquad p\in B_{ij},
+\end{equation*}
+and investigate whether there are any other possibilities. This choice indicates that if your interface node $p$ of the subdomain $\Omega_{i}$ is shared by multiple subdomains, then we take the average of all contributions from neighbors that share the node $p$. However, one can argue that we may also have
+\begin{equation*}
+    \left[d^{l+1, k+1}_{i}\right]_{p} = \sum\limits_{j\in\mathcal{N}_{i}(p)} w_{i, j}(p)\left[\alpha^{l+1, k}_{j}\right]_{\mathcal{M}_{ij}(p)}, \qquad p\in B_{ij},
+\end{equation*}
+such that
+\begin{equation*}
+    \sum_{j\in\mathcal{N}_{i}(p)}w_{i, j}(p) = 1.
+\end{equation*}
+The choice of weights for an interface node $p$ is not random, and this is actually what we call a \textit{partition of unity}. Therefore, we can define the \textit{partition of unity matrix} $U_{i}\in \mathbb{R}^{n_{i} - \lvert B_{i}\rvert \times n_{i} - \lvert B_{i}\rvert}$ for the subdomain $\Omega_{i}$, considering the choice of weights. This concept will be discussed later in detail as the partition of the unity matrix $U_{i}$ should be defined by considering all nodes of the subdomain $\Omega_{i}$ that are shared by multiple subdomains, not only interface nodes. We will also see that local Dirichlet vectors can be constructed without having a partition of unity, i.e.,
+\begin{equation*}
+    \left[d^{l+1, k+1}_{i}\right]_{p} = \sum\limits_{j\in\mathcal{N}_{i}(p)} \left[\alpha^{l+1, k}_{j}\right]_{\mathcal{M}_{ij}(p)}, \qquad p\in B_{ij},
+\end{equation*}
+which corresponds to the \textit{Additive Schwarz (AS) method}. We can rewrite the Dirichlet vector by defining \textit{binary trace matrices}
+\begin{equation*}
+    T_{ij} \in \mathbb{R}^{n_{i} \times n_{j}},
+\end{equation*}
+such that
+\begin{equation*}
+    \left[T_{ij}\alpha_{j}\right]_{p} = 
+    \begin{cases}
+        \left[\alpha_{j}\right]_{\mathcal{M}_{ij}(p)}, & p\in B_{ij},\\
+        0, & \text{otherwise}.
+    \end{cases}
+\end{equation*}
+If an interface node is shared by several neighboring subdomains, and we want to take the interface value as the arithmetic mean of the corresponding nodal values, we need to define \textit{weighted binary trace matrices}
+\begin{equation*}
+    \tilde{T}_{ij} \in \mathbb{R}^{n_{i} \times n_{j}},
+\end{equation*}
+such that
+\begin{equation*}
+    \left[\tilde{T}_{ij}\alpha_{j}\right]_{p} = 
+    \begin{cases}
+        \dfrac{1}{\lvert \mathcal{N}_{i}(p)\rvert}\left[\alpha_{j}\right]_{\mathcal{M}_{ij}(p)}, & p\in B_{ij},\\
+        0, & \text{otherwise}.
+    \end{cases}
+\end{equation*}
+Also, note that the construction of the weighted binary trace matrices depends on the weights we choose. In other words, we must have 
+\begin{equation*}
+    \left[\tilde{T}_{ij}\alpha_{j}\right]_{p} = w_{i, j}(p)\left[\alpha_{j}\right]_{\mathcal{M}_{ij}(p)}, \qquad p\in B_{ij}.
+\end{equation*}
+We will not consider it now, but we will see that the weighted binary trace matrices can be written using the partition of unity matrices. Then, the Dirichlet vector $d^{l+1, k+1}_{i}$ at the time step $l+1$ in the $k+1$-th iteration for the subdomain $\Omega_i$ is
+\begin{equation*}
+    d^{l+1, k+1}_{i} = T_{i0}H^{l+1} + \sum_{j\in\mathcal{N}_{i}}T_{ij}\alpha^{l+1, k}_{j},
+\end{equation*}
+where $T_{i0}\in \mathbb{R}^{n_{i}\times n}$ is the binary trace matrix corresponding to the physical boundary nodes. The Dirichlet conditions are imposed strongly by modifying the system matrix and the right-hand side. Let us define a \textit{Dirichlet projection matrix} $P_{i}\in \mathbb{R}^{n_{i}\times n_{i}}$ such that
+\begin{equation*}
+    \left[P_{i}\right]_{pp} = 
+    \begin{cases}
+        1, & p\in B_{i},\\
+        0, & p\notin B_{i},
+    \end{cases}
+\end{equation*}
+where $P_{i}$ projects onto Dirichlet nodes and $I - P_{i}$ projects onto free nodes. Then, the simplified system considering the Dirichlet boundary conditions is given as
+\begin{equation*}
+    \left(\left(I - P_{i}\right)K_{i} + P_{i}\right)\alpha_{i}^{l+1, k+1} = \left(I - P_{i}\right)b_{i} + P_{i}d^{l+1, k+1}_{i}.
+\end{equation*}
+It is worth noting that here the columns are not zeroed; therefore, we have a relatively simple form. However, the left-hand side does not preserve symmetry, which is undesirable for iterative solvers, such as the Conjugate Gradient (CG) method. One can rewrite the above system taking this note into account, and the resulting form will be mathematically equivalent.
+\begin{equation*}
+    \left(\left(I - P_{i}\right)K_{i}\left(I - P_{i}\right) + P_{i}\right)\alpha_{i}^{l+1, k+1} = \left(I - P_{i}\right)b_{i} - \left((I - P_{i})K_{i} - I\right)P_{i}d^{l+1, k+1}_{i}.
+\end{equation*}
+The final system to be solved is 
+\begin{equation*}
+    \left(\left(I - P_{i}\right)\left(M_{i} + \Delta t A_{i}\right) + P_{i}\right)\alpha_{i}^{l+1, k+1} = \left(I - P_{i}\right)\left(M_{i} \alpha_{i}^{l, k+1} + \Delta tF_{i}^{l+1}\right) + P_{i}\left(T_{i0}H^{l+1} + \sum_{j\in\mathcal{N}_{i}}T_{ij}\alpha^{l+1, k}_{j}\right),
+\end{equation*}
+with the initial condition
+\begin{equation*}
+    \left[\alpha_{i}^{0, k + 1}\right]_{p} = g(x_{p}), \quad p\in \text{Node}(\Omega_{i}),
+\end{equation*}
+where $x_p$ is the physical coordinate of the local node $p$. \vspace{10pt}
+
+To understand even better, let us introduce an \textit{interior restriction operator} $L_{i, I}: \mathbb{R}^{n_{i}} \to \mathbb{R}^{n_{i} - \lvert B_{i}\rvert}$, and a \textit{Dirichlet (boundary) restriction operator} $L_{i, D}: \mathbb{R}^{n_{i}} \to \mathbb{R}^{\lvert B_{i}\rvert}$ for the subdomain $\Omega_{i}$ such that
+\begin{equation*}
+    \alpha_{i, I}^{l+1, k+1} = L_{i, I}\alpha_{i}^{l+1, k+1}, \qquad \alpha_{i, D}^{l+1, k+1} = L_{i, D}\alpha_{i}^{l+1, k+1}.
+\end{equation*}
+Also note that their transposes are extension operators, and the following identities hold:
+\begin{equation*}
+    L_{i, I}^{T}L_{i, I} + L_{i, D}^{T}L_{i, D} = \left(I - P_{i}\right) + P_{i} = I_{n_{i}}, \qquad L_{i, I}L_{i, D}^{T} = 0.
+\end{equation*}
+Let us define the following block matrices
+\begin{equation*}
+    K_{i, II} = L_{i, I}K_{i}L_{i, I}^{T}, \qquad K_{i, ID} = L_{i, I}K_{i}L_{i, D}^{T}.
+\end{equation*}
+Then, the system we obtained above can be written in the block-matrix representation as 
+\begin{equation*}
+    \begin{bmatrix}
+        K_{i, II} & 0\\
+        0 & I_{\lvert B_{i}\rvert}
+    \end{bmatrix}
+    \begin{bmatrix}
+        \alpha_{i, I}^{l+1, k+1}\\
+        \alpha_{i, D}^{l+1, k+1}
+    \end{bmatrix} =
+    \begin{bmatrix}
+        b_{i, I} - K_{i, ID}d^{l+1, k+1}_{i, D}\\
+        d^{l+1, k+1}_{i, D}
+    \end{bmatrix},
+\end{equation*}
+where $b_{i, I} = L_{i, I}b_{i}$ and $d^{l+1, k+1}_{i, D} = L_{i, D}d^{l+1, k+1}_{i}$. The block-matrix representation, therefore, is given by
+\begin{align*}
+    \begin{bmatrix}
+        \left(M_{i} + \Delta t A_{i}\right)_{i, II} & 0\\
+        0 & I_{\lvert B_{i}\rvert}
+    \end{bmatrix}&
+    \begin{bmatrix}
+        \alpha_{i, I}^{l+1, k+1}\\
+        \alpha_{i, D}^{l+1, k+1}
+    \end{bmatrix} =\\
+    &\begin{bmatrix}
+        \left(M_{i} \alpha_{i}^{l, k+1} + \Delta tF_{i}^{l+1}\right)_{i, I} - \left(M_{i} + \Delta t A_{i}\right)_{i, ID}L_{i, D}\left(T_{i0}H^{l+1} + \sum_{j\in\mathcal{N}_{i}}T_{ij}\alpha^{l+1, k}_{j}\right)\\
+        L_{i, D}\left(T_{i0}H^{l+1} + \sum_{j\in\mathcal{N}_{i}}T_{ij}\alpha^{l+1, k}_{j}\right)
+    \end{bmatrix}.
+\end{align*}
+The interior system is given by
+\begin{equation*}
+    K_{i, II}\alpha_{i, I}^{l+1, k+1} = b_{i, I} - K_{i, ID}d^{l+1, k+1}_{i, D}.
+\end{equation*}
+To make notations easier to follow, let us rewrite this as
+\begin{equation*}
+    \boxed{\tilde{K}_{i}\tilde{\alpha}_{i}^{l+1, k+1} = \tilde{b}_{i} - K_{i, ID}d^{l+1, k+1}_{i, D}.}
+\end{equation*}
+Let us now solve the given heat problem in the whole (global) domain $\Omega$. Let $V_{h} = \text{span}\{\varphi_{1}, \ldots, \varphi_{n}\}$ be the global FE space. Then, we have
+\begin{equation*}
+    u_{h}(x, t) = \sum_{m = 1}^{n}\alpha_{m}(t)\varphi_{m}(x).
+\end{equation*}
+Inserting this form into the weak form, we get
+\begin{equation*}
+    \sum_{m = 1}^{n}m(\varphi_{m}, \varphi_{l})\dot{\alpha}_{m}(t) + \sum_{m = 1}^{n}a(\varphi_{m}, \varphi_{l})\alpha_{m}(t) = (f, \varphi_{m}).
+\end{equation*}
+We can write this as a linear system of ODEs for $\alpha(t) = \left(\alpha_{1}(t), \ldots, \alpha_{n}(t)\right)\in \mathbb{R}^{n}$
+\begin{equation*}
+    M\dot{\alpha}(t) + A\alpha(t) = F(t),
+\end{equation*}
+where
+\begin{equation*}
+    M_{lk} = m(\varphi_{k}, \varphi_{l}), \qquad A_{lk} = a(\varphi_{k}, \varphi_{l}), \qquad F_{l} = (f, \varphi_{k}).
+\end{equation*}
+The next step is to use a time discretization. Here, let us use backward Euler (implicit Euler) to get
+\begin{equation*}
+    \left(M + \Delta t A\right)\alpha^{l+1} = M \alpha^{l} + \Delta tF^{l+1}.
+\end{equation*}
+Now, it is time to apply boundary conditions. Let us rename the following matrices
+\begin{equation*}
+    K = M + \Delta t A, \qquad b = M \alpha^{l} + \Delta tF^{l+1}, 
+\end{equation*}
+which simplifies the above system to
+\begin{equation*}
+    K\alpha^{l+1} = b.
+\end{equation*}
+The Dirichlet conditions are imposed strongly by modifying the system matrix and the right-hand side. Let us define a \textit{Dirichlet projection matrix} $P\in \mathbb{R}^{n\times n}$ such that
+\begin{equation*}
+    \left[P\right]_{pp} = 
+    \begin{cases}
+        1, & p\in B,\\
+        0, & p\notin B,
+    \end{cases}
+\end{equation*}
+where 
+\begin{equation*}
+    B = \{p\in \text{Node}(\Omega): x_p\in \partial \Omega\},
+\end{equation*}
+is the Dirichlet (boundary) index set for the domain $\Omega$, and $P$ projects onto Dirichlet nodes and $I - P$ projects onto free nodes. Then, the simplified system considering the Dirichlet boundary conditions is given as
+\begin{equation*}
+    \left(\left(I - P\right)K + P\right)\alpha^{l+1} = \left(I - P\right)b + PH^{l+1},
+\end{equation*}
+where 
+\begin{equation*}
+    \left[H^{l+1}\right]_{p} = 
+    \begin{cases}
+        h(x_{p}, t_{l+1}), & p\in B,\\
+        0, & \text{otherwise},
+    \end{cases}
+\end{equation*}
+is the \textit{global Dirichlet vector} already defined above. It is worth noting that here the columns are not zeroed; therefore, we have a relatively simple form. However, the left-hand side does not preserve symmetry, which is undesirable for iterative solvers, such as the Conjugate Gradient (CG) method. One can rewrite the above system taking this note into account, and the resulting form will be mathematically equivalent.
+\begin{equation*}
+    \left(\left(I - P\right)K\left(I - P\right) + P\right)\alpha^{l+1} = \left(I - P\right)b - \left((I - P)K - I\right)PH^{l+1}.
+\end{equation*}
+The final system to be solved is 
+\begin{equation*}
+    \left(\left(I - P\right)\left(M + \Delta t A\right) + P\right)\alpha^{l+1} = \left(I - P\right)\left(M \alpha^{l} + \Delta tF^{l+1}\right) + PH^{l+1},
+\end{equation*}
+with the initial condition
+\begin{equation*}
+    \left[\alpha^{0}\right]_{p} = g(x_{p}), \quad p\in \text{Node}(\Omega),
+\end{equation*}
+where $x_p$ is the physical coordinate of the global node $p$. \vspace{10pt}
+
+Let us now introduce a \textit{global interior restriction operator} $L_{I}: \mathbb{R}^{n} \to \mathbb{R}^{n - \lvert B\rvert}$, and a \textit{global Dirichlet (boundary) restriction operator} $L_{D}: \mathbb{R}^{n} \to \mathbb{R}^{\lvert B\rvert}$ for the subdomain $\Omega$ such that
+\begin{equation*}
+    \alpha_{I}^{l+1} = L_{I}\alpha^{l+1}, \qquad \alpha_{D}^{l+1} = L_{D}\alpha^{l+1}.
+\end{equation*}
+Also note that their transposes are extension operators, and the following identities hold:
+\begin{equation*}
+    L_{I}^{T}L_{I} + L_{D}^{T}L_{D} = \left(I - P\right) + P = I_{n}, \qquad L_{I}L_{D}^{T} = 0.
+\end{equation*}
+Let us define the following block matrices
+\begin{equation*}
+    K_{II} = L_{I}KL_{I}^{T}, \qquad K_{ID} = L_{I}KL_{D}^{T}.
+\end{equation*}
+Then, the system we obtained above can be written in the block-matrix representation as 
+\begin{equation*}
+    \begin{bmatrix}
+        K_{II} & 0\\
+        0 & I_{\lvert B\rvert}
+    \end{bmatrix}
+    \begin{bmatrix}
+        \alpha_{I}^{l+1}\\[1pt]
+        \alpha_{D}^{l+1}
+    \end{bmatrix} =
+    \begin{bmatrix}
+        b_{I} - K_{ID}H^{l+1}_{D}\\
+        H^{l+1}_{D}
+    \end{bmatrix},
+\end{equation*}
+where $b_{I} = L_{I}b$ and $H^{l+1}_{D} = L_{D}H^{l+1}$. Then, the block-matrix representation is given by
+\begin{equation*}
+    \begin{bmatrix}
+        \left(M + \Delta t A\right)_{II} & 0\\
+        0 & I_{\lvert B\rvert}
+    \end{bmatrix}
+    \begin{bmatrix}
+        \alpha_{I}^{l+1}\\[1pt]
+        \alpha_{D}^{l+1}
+    \end{bmatrix} = 
+    \begin{bmatrix}
+        \left(M \alpha^{l} + \Delta tF^{l+1}\right)_{I} - \left(M + \Delta t A\right)_{ID}L_{D}H^{l+1}\\
+        L_{D}H^{l+1}
+    \end{bmatrix}.
+\end{equation*}
+The interior system is given by
+\begin{equation*}
+    K_{II}\alpha_{I}^{l+1} = b_{I} - K_{ID}H^{l+1}_{D}.
+\end{equation*}
+To make notations easier to follow, let us rewrite this as
+\begin{equation*}
+    \boxed{\tilde{K}\tilde{\alpha}^{l+1} = \tilde{b} - K_{ID}H^{l+1}_{D}.}
+\end{equation*}
+Let us introduce an \textit{interior restriction operator} $R_{i}: \mathbb{R}^{n - \lvert B\rvert} \to \mathbb{R}^{n_{i} - \lvert B_{i}\rvert}$, and a \textit{Dirichlet (boundary) restriction operator} $R_{i, D}: \mathbb{R}^{\lvert B\rvert} \to \mathbb{R}^{\lvert B_{i}\rvert}$ for the subdomain $\Omega_{i}$ to pick out 
+the subdomain interior and boundary components of the global solution. Then we can combine solutions from all subdomains as (global reconstruction)
+\begin{equation*}
+    \alpha_{sch}^{l+1, k+1} = \sum_{i = 1}^{s}R_{i}^{T}U_{i}\tilde{\alpha}^{l+1, k + 1}_{i}\in \mathbb{R}^{n},
+\end{equation*}
+where the partition of unity matrix $U_{i}\in \mathbb{R}^{n_{i} - \lvert B_{i}\rvert \times n_{i} - \lvert B_{i}\rvert}$ is defined by
+\begin{equation*}
+    \left[U_{i}\right]_{lk} = 
+    \begin{cases}
+        w_{i, k}, & l=k,\\
+        0, & l\neq k,
+    \end{cases}
+\end{equation*}
+where $w_{i, k}$ is the weight assigned to the local node $k$ in the subdomain $\Omega_{i}$. The weights should satisfy
+\begin{equation*}
+    \sum_{j\in\mathcal{N}_{i}(p_{k})}w_{j, k} = 1, \qquad \text{ for all } i = 1, \ldots, s,
+\end{equation*}
+where $\mathcal{N}_{i}(p_{k}) = \{j\in \mathcal{N}_{i}: p_k\in \text{Node}(\Omega_{j})\}$ is the set of subdomains that share the node $k$.
+The partition of unity matrix in the global construction exists in the case of \textit{Restricted Additive Schwarz} (RAS), and the weights can be chosen as
+\begin{equation*}
+    w_{i, k} = \dfrac{1}{\lvert \mathcal{N}_{i}(p_{k})\rvert}.
+\end{equation*}
+In the case of \textit{Additive Schwarz} (AS), we have $U_{i} = I_{n_{i} - \lvert B_{i}\rvert}$, therefore no partition of unity matrix is needed 
+in the global construction, i.e.,
+\begin{equation*}
+    \alpha_{sch}^{l+1, k+1} = \sum_{i = 1}^{s}R_{i}^{T}\tilde{\alpha}^{l+1, k + 1}_{i}\in \mathbb{R}^{n}.
+\end{equation*}
+In either case, the constructed global solution at time $t_{l+1}$ is
+\begin{equation*}
+    u_{sch}(x, t_{l+1}) = \sum_{j=1}^{n}\alpha_{sch, j}^{l+1, k+1}\varphi_{j}(x).
+\end{equation*}
+Since interface nodes of the subdomain $\Omega_i$ are interior nodes of the subdomain $\Omega_j$ for $j\in\mathcal{N}_{i}$, we can define the 
+Dirichlet vector $d^{l+1, k+1}_{i}$ at the time step $l+1$ in the $k+1$-th iteration for the subdomain $\Omega_i$ as
+\begin{equation*}
+    d^{l+1, k+1}_{i} = T_{i0}H^{l+1} + \sum_{j\in\mathcal{N}_{i}}T_{ij}L_{j, I}^{T}U_{j}\tilde{\alpha}^{l+1, k}_{j},
+\end{equation*}
+where trace matrices are defined as
+\begin{equation*}
+    T_{ij} \in \mathbb{R}^{n_{i} \times n_{j}},
+\end{equation*}
+such that
+\begin{equation*}
+    \left[T_{ij}\alpha_{j}\right]_{p} = 
+    \begin{cases}
+        \left[\alpha_{j}\right]_{\mathcal{M}_{ij}(p)}, & p\in B_{ij},\\
+        0, & \text{otherwise}.
+    \end{cases}
+\end{equation*}
+Also, notice that
+\begin{equation*}
+    \tilde{K}_{i} = R_{i}\tilde{K}R_{i}^{T}.
+\end{equation*}
+Since
+\begin{align*}
+    R_{i}\tilde{b} &= R_{i}b_{I} = R_{i}L_{I}b = R_{i}L_{I}\left(M \alpha^{l} + \Delta tF^{l+1}\right) = R_{i}L_{I}M \alpha^{l} + \Delta tR_{i}L_{I}F^{l+1} = R_{i}L_{I}M \alpha^{l} + \Delta tL_{i, I}F_{i}^{l+1},\\
+    \tilde{b}_{i} &= L_{i, I}b_{i} = L_{i, I}\left(M_{i} \alpha_{i}^{l, k+1} + \Delta tF_{i}^{l+1}\right),
+\end{align*}
+then
+\begin{equation*}
+    R_{i}\tilde{b} - \tilde{b}_{i} = R_{i}L_{I}M \alpha^{l} - L_{i, I}M_{i} \alpha_{i}^{l, k+1},
+\end{equation*}
+which implies that
+\begin{equation*}
+    \tilde{b}_{i} \neq R_{i}\tilde{b}.
+\end{equation*}
+To see even better, let us define $\hat{R}_{i}: \mathbb{R}^{n} \to \mathbb{R}^{n_i}$ is the restriction operator from the global domain $\Omega$ to the subdomain $\Omega_{i}$. Then
+\begin{equation*}
+    M_{i} = \hat{R}_{i}M\hat{R}_{i}^{T}, \qquad A_{i} = \hat{R}_{i}A\hat{R}_{i}^{T}.
+\end{equation*}
+Then 
+\begin{equation*}
+    R_{i}\tilde{b} - \tilde{b}_{i} = R_{i}L_{I}M \alpha^{l} - L_{i, I}\hat{R}_{i}M\hat{R}_{i}^{T} \alpha_{i}^{l, k+1}.
+\end{equation*}
+Therefore,
+\begin{equation*}
+    \alpha_{sch}^{l+1, k+1} = \sum_{i = 1}^{s}R_{i}^{T}U_{i}\tilde{\alpha}^{l+1, k + 1}_{i} = \sum_{i = 1}^{s}R_{i}^{T}U_{i}\tilde{K}_{i}^{-1}\left(\tilde{b}_{i} - K_{i, ID}d^{l+1, k+1}_{i, D}\right).
+\end{equation*}
+
+\section{Reduced Order Waveform Relaxation Method}
+
+The reduced order waveform relaxation solves in each subdomain $\Omega_i$ (assume that we have $s$ many subdomains) the following problem in iteration $k+1$
+\begin{equation*}
+    \int_{\Omega_{i}}\partial_{t} u_{r, i}^{k+1} v_{r, i}\,dx + \int_{\Omega_{i}}\nabla u_{r, i}^{k+1} \cdot \nabla v_{r, i}\,dx = \int_{\Omega_{i}}fv_{r, i}\,dx, \qquad \forall v_{r, i}\in V_{r, i},
+\end{equation*}
+where $V_{r, i} = \text{span}\{\psi_{i, 1}, \ldots, \psi_{i, r_{i}}\}$ is the reduced basis space in the subdomain $\Omega_{i}$ with $r_{i} \ll n_{i}$, and $u_{r, i}^{k+1}\in V_{r, i}$. Define
+\begin{equation*}
+    m(\partial_{t} u, v) = \int_{\Omega_{i}}\partial_{t} u v\,dx, \qquad a(u, v) = \int_{\Omega_{i}}\nabla u \cdot \nabla v\,dx, 
+\end{equation*}
+which implies
+\begin{equation*}
+    m(\partial_{t} u_{r, i}^{k+1}, v_{r, i}) + a(u_{r, i}^{k+1}, v_{r, i}) = (f, v_{r, i}).
+\end{equation*}
+Each reduced basis function $\psi_{i, q}$ can be represented in terms of the global finite element basis functions as
+\begin{equation*}
+    \psi_{i, q}(x) = \sum_{m = 1}^{n_{i}}\left[\Phi_{i}\right]_{mq}\varphi_{j_{i, m}}(x), \quad q = 1, \ldots, r_{i},
+\end{equation*}
+where $\Phi_{i}\in \mathbb{R}^{n_{i}\times r_{i}}$ is the local projection matrix in the subdomain $\Omega_{i}$. Then, the reduced solution is written as
+\begin{equation*}
+    u_{r, i}^{k+1}(x, t) = \sum_{q = 1}^{r_i}\beta^{k+1}_{i, q}(t)\psi_{i, q}(x), \quad x\in \Omega_{i}.
+\end{equation*}
+Choosing $v_{r, i} = \psi_{i, p}$ for $p = 1, \ldots, r_{i}$, we get
+\begin{equation*}
+    \sum_{q = 1}^{r_i}m(\psi_{i, q}, \psi_{i, p})\dot{\beta}^{k+1}_{i, q}(t) + \sum_{q = 1}^{r_i}a(\psi_{i, q}, \psi_{i, p})\beta^{k+1}_{i, q}(t) = (f, \psi_{i, p}).
+\end{equation*}
+We can write this as a linear system of ODEs for $\beta_{i}^{k+1}(t) = (\beta^{k+1}_{i, 1}(t), \ldots, \beta^{k+1}_{i, r_{i}}(t))\in \mathbb{R}^{r_{i}}$
+\begin{equation*}
+    M_{r, i}\dot{\beta}_{i}^{k+1}(t) + A_{r, i}\beta_{i}^{k+1}(t) = F_{r, i}(t),
+\end{equation*}
+where
+\begin{equation*}
+    M_{r, i, pq} = m(\psi_{i, q}, \psi_{i, p}), \qquad A_{r, i, pq} = a(\psi_{i, q}, \psi_{i, p}), \qquad F_{r, i, p} = (f, \psi_{i, p}).
+\end{equation*}
+Using the projection matrix, we can write
+\begin{equation*}
+    M_{r, i} = \Phi_{i}^{T}M_{i}\Phi_{i}, \qquad A_{r, i} = \Phi_{i}^{T}A_{i}\Phi_{i}, \qquad F_{r, i}(t) = \Phi_{i}^{T}F_{i}(t),
+\end{equation*}
+where $M_{i}, A_{i}, F_{i}(t)$ are the local mass matrix, stiffness matrix, and load vector in the subdomain $\Omega_{i}$, respectively.
+The next step is to use a time discretization. Here, let us use backward Euler (implicit Euler) to get
+\begin{equation*}
+    \left(M_{r, i} + \Delta t A_{r, i}\right)\beta_{i}^{l+1, k+1} = M_{r, i} \beta_{i}^{l, k+1} + \Delta tF_{r, i}^{l+1}.
+\end{equation*}
+Now, it is time to apply boundary conditions. Let us rename the following matrices
+\begin{equation*}
+    K_{r, i} = M_{r, i} + \Delta t A_{r, i}, \qquad b_{r, i} = M_{r, i} \beta_{i}^{l, k+1} + \Delta tF_{r, i}^{l+1}, 
+\end{equation*}
+which simplifies the above system to
+\begin{equation*}
+    K_{r, i}\beta_{i}^{l+1, k+1} = b_{r, i}.
+\end{equation*}
+Note also that we have
+\begin{equation*}
+    K_{r, i} = \Phi_{i}^{T}K_{i}\Phi_{i},
+\end{equation*}
+however, in general, one cannot write
+\begin{equation*}
+    b_{r, i} = \Phi_{i}^{T}b_{i}
+\end{equation*}
+Indeed, in waveform relaxation the full-order iterate $\alpha_i^{l+1, k+1}$ and the 
+reduced-order iterate $\beta_i^{l+1, k+1}$ are distinct quantities: $\alpha_i^{l+1, k+1}$ evolves 
+in the full finite element space, whereas $\beta_i^{l+1, k+1}$ evolves in the reduced space. 
+Since these iterates are not related by a fixed reconstruction $\alpha_i^{l+1, k+1} = \Phi_i \beta_i^{l+1, k+1}$ at each iteration, the reduced right-hand side cannot be obtained by direct projection of the full-order right-hand side.
+
+Considering the number of introduced indices, let us explicitly state what $\beta_{i}^{l+1, k+1}$ is. It is the 
+reduced coefficient vector obtained in the $k+1$-th iteration for the subdomain $i$ at the time step $l+1$. 
+To apply boundary conditions, we define the \textit{reconstructed Dirichlet vector} 
+\begin{equation*}
+    \hat{d}^{l+1, k+1}_{i} \in \mathbb{R}^{n_{i}},
+\end{equation*}
+defined as
+\begin{equation*}
+    \left[\hat{d}^{l+1, k+1}_{i}\right]_{p} = 
+    \begin{cases}
+        \left[H^{l+1}\right]_{\mathcal{M}_{i0}(p)}, & p\in B_{i0},\\[3pt]
+        \dfrac{1}{\lvert \mathcal{N}_{i}(p)\rvert}\sum\limits_{j\in\mathcal{N}_{i}(p)}\left[\Phi_{j}\beta^{l+1, k}_{j}\right]_{\mathcal{M}_{ij}(p)}, & p\in B_{ij},\\
+        0, & \text{otherwise}.
+    \end{cases}
+\end{equation*}
+The reconstructed Dirichlet vector $\hat{d}^{l+1, k+1}_{i}$ at the time step $l+1$ in the $k+1$-th iteration for the subdomain $\Omega_i$ can be written in terms of trace matrices as
+\begin{equation*}
+    \hat{d}^{l+1, k+1}_{i} = T_{i0}H^{l+1} + \sum_{j\in\mathcal{N}_{i}}T_{ij}\Phi_{j}\beta^{l+1, k}_{j},
+\end{equation*}
+where $T_{i0}\in \mathbb{R}^{n_{i}\times n}$ is the binary trace matrix 
+corresponding to the physical boundary nodes. 
+
+Then, the system we obtained above can be written in the block-matrix representation as 
+\begin{equation*}
+    \begin{bmatrix}
+        \Phi_{i, I}^{T} & \Phi_{i, D}^{T}
+    \end{bmatrix}
+    \begin{bmatrix}
+        K_{i, II} & 0\\
+        0 & I_{\lvert B_{i}\rvert}
+    \end{bmatrix}
+    \begin{bmatrix}
+        \Phi_{i, I}\\
+        \Phi_{i, D}
+    \end{bmatrix}
+    \beta_{i}^{l+1, k+1}
+    =
+    \begin{bmatrix}
+        \Phi_{i, I}^{T} & \Phi_{i, D}^{T}
+    \end{bmatrix}
+    \begin{bmatrix}
+        L_{i, I}\left(M_{i}\Phi_{i}\beta_{i}^{l, k+1} + \Delta t F_{i}^{l+1}\right) - K_{i, ID}\hat{d}^{l+1, k+1}_{i, D}\\
+        \hat{d}^{l+1, k+1}_{i, D}
+    \end{bmatrix},
+\end{equation*}
+where $b_{i, I} = L_{i, I}b_{i}$ and $\hat{d}^{l+1, k+1}_{i, D} = L_{i, D}\hat{d}^{l+1, k+1}_{i}$. Then, we can write this as
+\begin{equation*}
+    \left(\Phi_{i, I}^{T}K_{i, II}\Phi_{i, I} + \Phi_{i, D}^{T}\Phi_{i, D}\right)\beta_{i}^{l+1, k+1} = \Phi_{i, I}^{T}L_{i, I}\left(M_{i}\Phi_{i}\beta_{i}^{l, k+1} + 
+    \Delta t F_{i}^{l+1}\right) - \Phi_{i, I}^{T}K_{i, ID}\hat{d}^{l+1, k+1}_{i, D} + \Phi_{i, D}^{T}\hat{d}^{l+1, k+1}_{i, D}
+\end{equation*}
+which can be reduced to
+\begin{equation*}
+    \Phi_{i, I}^{T}K_{i, II}\Phi_{i, I} \beta_{i}^{l+1, k+1} = \Phi_{i, I}^{T}L_{i, I}\left(M_{i}\Phi_{i}\beta_{i}^{l, k+1} + 
+    \Delta t F_{i}^{l+1}\right) - \Phi_{i, I}^{T}K_{i, ID}\hat{d}^{l+1, k+1}_{i, D} + \Phi_{i, D}^{T}\hat{d}^{l+1, k+1}_{i, D} - \Phi_{i, D}^{T}\Phi_{i, D}\beta_{i}^{l+1, k+1}
+\end{equation*}
+Since $\hat{d}^{l+1, k+1}_{i} = \Phi_{i}\beta_{i}^{l+1, k+1}$, we get
+\begin{equation*}
+    \Phi_{i, I}^{T}K_{i, II}\Phi_{i, I} \beta_{i}^{l+1, k+1} = \Phi_{i, I}^{T}L_{i, I}\left(M_{i}\Phi_{i}\beta_{i}^{l, k+1} + 
+    \Delta t F_{i}^{l+1}\right) - \Phi_{i, I}^{T}K_{i, ID}\hat{d}^{l+1, k+1}_{i, D}.
+\end{equation*}
+The interior system is given by
+\begin{equation*}
+    K_{i, II}\alpha_{i, I}^{l+1, k+1} = b_{i, I} - K_{i, ID}d^{l+1, k+1}_{i, D}.
+\end{equation*}
+\newpage
+We know that for FOM with the Dirichlet boundary condition $\hat{d}^{l+1, k+1}_{i, D}$, the following is satisfied
+\begin{equation*}
+    \boxed{K_{i, II}\alpha_{i, I}^{l+1, k+1} = L_{i, I}M_{i}\alpha_{i}^{l, k+1} + 
+    L_{i, I}\Delta t F_{i}^{l+1} - K_{i, ID}\hat{d}^{l+1, k+1}_{i, D}}.
+\end{equation*}
+If we assume that
+\begin{equation*}
+    \alpha_{i}^{l+1, k+1} = 
+    \begin{bmatrix}
+        \alpha_{i, I}^{l+1, k+1}\\
+        \alpha_{i, D}^{l+1, k+1}
+    \end{bmatrix}
+    =
+    \begin{bmatrix}
+        \Phi_{i, I}\\
+        0
+    \end{bmatrix}
+    \tilde{\beta}_{i}^{l+1, k+1} + 
+    \begin{bmatrix}
+        0\\
+        \hat{d}_{i, D}^{l+1, k+1}
+    \end{bmatrix}
+    =
+    \Phi_{i}\tilde{\beta}_{i}^{l+1, k+1} + \hat{d}_{i}^{l+1, k+1},
+\end{equation*}
+where
+\begin{equation*}
+    \Phi_{i} = 
+    \begin{bmatrix}
+        \Phi_{i, I}\\
+        0
+    \end{bmatrix} \in \mathbb{R}^{n_{i}\times r_{i}}, \qquad  \Phi_{i, I} = L_{i, I}\Phi_{i}\in \mathbb{R}^{(n_{i} - \lvert B_{i}\rvert) \times r_{i}}.
+\end{equation*}
+Once we substitute to the formula, we get
+\begin{align*}
+    K_{i, II}\Phi_{i, I} \tilde{\beta}_{i}^{l+1, k+1} &= L_{i, I}M_{i}\Phi_{i}\tilde{\beta}_{i}^{l, k+1} + 
+    L_{i, I}\Delta t F_{i}^{l+1} + L_{i, I}M_{i}\hat{d}_{i}^{l, k+1} - K_{i, ID}\hat{d}^{l+1, k+1}_{i, D} = \\
+    &= L_{i, I}M_{i}\Phi_{i}\tilde{\beta}_{i}^{l, k+1} + 
+    \Delta t L_{i, I} F_{i}^{l+1} - L_{i, I}M_{i}\left(\hat{d}_{i}^{l+1, k+1} - \hat{d}_{i}^{l, k+1}\right) - \Delta t L_{i, I}A_{i}\hat{d}^{l+1, k+1}_{i},
+\end{align*}
+since $\hat{d}^{l+1, k+1}_{i} = L_{i, D}^{T}\hat{d}^{l+1, k+1}_{i, D}$.
+Multiplying by $\Phi_{i, I}^{T}$ from left side, we obtain
+\begin{equation*}
+    \Phi_{i}^{T}K_{i}\Phi_{i} \tilde{\beta}_{i}^{l+1, k+1} = \Phi_{i}^{T}M_{i}\Phi_{i}\tilde{\beta}_{i}^{l, k+1} + 
+    \Delta t\Phi_{i}^{T} F_{i}^{l+1} - \Phi_{i}^{T}K_{i}\hat{d}^{l+1, k+1}_{i} + \Phi_{i}^{T}M_{i} \hat{d}_{i}^{l, k+1},
+\end{equation*}
+since $\Phi_{i}^{T} = \Phi_{i, I}^{T}L_{i, I}$. Thus, we get
+\begin{equation*}
+    \boxed{K_{r, i} \tilde{\beta}_{i}^{l+1, k+1} = M_{r, i}\tilde{\beta}_{i}^{l, k+1} + 
+    \Delta t\Phi_{i}^{T} F_{i}^{l+1} - \Phi_{i}^{T}K_{i}\hat{d}^{l+1, k+1}_{i} + \Phi_{i}^{T}M_{i} \hat{d}_{i}^{l, k+1}}
+\end{equation*}
+Once we get the reduced solution $\tilde{\beta}_{i}^{l+1, k+1}$, we can reconstruct the full-order solution as
+\begin{equation*}
+    \boxed{\alpha_{r, i}^{l+1, k+1} = \Phi_{i}\tilde{\beta}_{i}^{l+1, k+1} + \hat{d}_{i}^{l+1, k+1}}.
+\end{equation*}
+\textbf{This reconstruction is only needed to construct the Dirichlet data for the neighboring subdomains.}
+
+\noindent The initial condition for iteration is 
+\begin{equation*}
+    \tilde{\beta}_{i}^{0, k + 1} = \Phi_{i}^{T}\left(\alpha_{i}^{0, k + 1} - \hat{d}_{i}^{0, k + 1}\right).
+\end{equation*}
+Note that if we take
+\begin{equation*}
+    \Phi_{i, I} = I_{(n_{i} - |B_{i}|)\times (n_{i} - |B_{i}|)},
+\end{equation*}
+then the Reduced Waveform Relaxation iteration reduces to Overlapping Waveform Relaxation iteration. Then we can combine solutions from
+all subdomains as (global reconstruction)
+\begin{equation*}
+    \boxed{\alpha_{r}^{l+1, k+1} = \sum_{i=1}^{s}R_{i}^{T}U_{i}\Phi_{i}\tilde{\beta}_{i}^{l+1, k+1} \in \mathbb{R}^{n}}
+\end{equation*}
+\end{document}

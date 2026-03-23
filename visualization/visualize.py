@@ -7,11 +7,12 @@ from matplotlib.widgets import Slider
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize  # <- correct import
 import matplotlib.cm as cm
-import fem.mesh as mesh
+from fem.mesh import Mesh
+from typing import Callable, Optional
 
 class MeshVisualizer:
-    def __init__(self, meshobj: mesh.Mesh):
-        if not isinstance(meshobj, mesh.Mesh):
+    def __init__(self, meshobj: Mesh):
+        if not isinstance(meshobj, Mesh):
             raise TypeError("MeshVisualizer expects a Mesh object")
         self.mesh = meshobj
 
@@ -28,46 +29,10 @@ class MeshVisualizer:
                 colors[i] = 1
         return colors
     
-    # Build a color array representing the subdomain decomposition of the mesh.
-    def carray_decomposition(self, n: int, direction = None) -> np.ndarray:
-        _, _, _, membership = self.mesh.decompose(n = n, direction = direction)  # Example with n subdomains
+    # Build a color array representing the non-overlapping subdomain decomposition of the mesh.
+    def carray_decomposition(self, n: int) -> np.ndarray:
+        _, _, _, _, membership = self.mesh.decompose(n)
         return np.array(membership)
-
-    def subdomain_boundaries(self, subdomains: list):
-        sbd = dict()
-        for i in range(len(subdomains)):
-            print(subdomains[i].boundary_nodes().shape)
-            sbd[i+1] = subdomains[i].boundary_nodes()
-        return sbd
-    # not correct, change edges
-    def bvisualize(self, subdomains: list):
-
-        sb = self.subdomain_boundaries(subdomains)
-
-        x = self.mesh.vertices[:, 0]
-        y = self.mesh.vertices[:, 1]
-
-        # Create a triangulation
-        triang = mtri.Triangulation(x, y, self.mesh.elements)
-
-        fig, ax = plt.subplots()
-        ax.triplot(triang, color='lightgray', linewidth=0.5)    
-
-        # Choose a colormap (e.g., tab20 has 20 distinct colors)
-        cmap = cm.get_cmap('tab20')  
-
-        # Normalize subdomain IDs to [0,1] for the colormap
-        sd_ids = list(sb.keys())
-        norm = Normalize(vmin=min(sd_ids), vmax=max(sd_ids))
-
-        for sd_id, edges in sb.items():
-            color = cmap(norm(sd_id))  # dynamically assign color
-            lc = LineCollection(edges, colors=color, linewidths=2)
-            ax.add_collection(lc)
-
-        ax.autoscale()
-        ax.set_aspect('equal')
-        plt.show()
 
     def visualize(self, carray: np.ndarray):
         plt.figure(figsize = (6,6), dpi = 150)
@@ -77,63 +42,24 @@ class MeshVisualizer:
         plt.show()
 
 class SolutionVisualizer:
-    def __init__(self, meshobj: mesh.Mesh, u: np.ndarray, dt=None):
-
+    def __init__(self, meshobj: Mesh, u: np.ndarray, dt: Optional[float] = None):
         """
         Parameters
         ----------
         meshobj : Mesh
-            Your FEM mesh
+            The mesh object the solution is defined on.
         u : np.ndarray
-            Solution array, shape (ndofs, ntime)
+            FEM solution array. For time-dependent problems, shape should be (nspace, ntime). 
+            For steady-state problems, shape can be (nspace,) or (nspace, 1).
         dt : float, optional
             Time step size
         """
-
         self.mesh = meshobj
         self.u = u
-        if u.ndim == 1:
-            u = u[:, np.newaxis]
-        self.u = u
         self.dt = dt
-        self.ntime = u.shape[1]
+        self.ntime = u.shape[1] if dt is not None and u.ndim == 2 else 1
 
-    def plot_iteration_error(self, error_history, logscale=True, marker='o', title = r"Iteration vs $L^{2}$ Error", **kwargs):
-        """
-        Plot iteration number vs error.
-
-        Parameters
-        ----------
-        error_history : list or array
-            List of error values per iteration.
-        logscale : bool, default True
-            If True, use semilog-y scale (recommended for convergence plots).
-        marker : str, default 'o'
-            Marker style for points.
-        title : str, default "Iteration vs L2 Error"
-            Plot title.
-        **kwargs : dict
-            Additional keyword arguments to pass to plt.plot / plt.semilogy
-            e.g., color='r', linewidth=2, linestyle='--', alpha=0.7
-        """
-
-        iterations = range(1, len(error_history) + 1)
-        errors = error_history
-
-        plt.figure(figsize=(6,4), dpi = 150)
-        if logscale:
-            plt.semilogy(iterations, errors, marker = marker, **kwargs)
-        else:
-            plt.plot(iterations, errors, marker = marker, **kwargs)
-
-        plt.xlabel("Iteration")
-        plt.ylabel(r"$\| u_h - u \|_{L^2(\Omega)}$")
-        plt.title(title)
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
-
-    def visualize(self, cmap = 'viridis', levels = 50):
+    def visualize(self, cmap = 'viridis', levels = 50, figsize = (6, 5), dpi = 150):
 
         """
         Plot FEM solution for 2D triangular mesh with linear Lagrange elements (degree 1).
@@ -204,7 +130,7 @@ class SolutionVisualizer:
 
         plt.show()
 
-    def visualize_3d_compare(self, u_exact_func=None, cmap='viridis'):
+    def plot_comparison(self, u_exact_func = None, cmap = 'viridis'):
         """
         Plot FEM solution for 2D triangular mesh as a 3D surface,
         optionally comparing with the exact solution side by side.
@@ -259,6 +185,45 @@ class SolutionVisualizer:
             ax2.set_title('Exact Solution')
 
             plt.show()
+
+    def visualize_1d_time_compare(self, exact_func, nx=200):
+        """
+        Compare 1D FEM solution with exact solution over time.
+        
+        exact_func(x, t)
+        """
+
+        idx = np.argsort(self.mesh.vertices)
+        x_mesh = self.mesh.vertices[idx]
+        x_grid = np.linspace(x_mesh.min(), x_mesh.max(), nx)
+
+        fig, ax = plt.subplots(figsize=(8,5))
+        plt.subplots_adjust(bottom=0.25)
+
+        # Initial plot
+        z_exact = exact_func(x_grid, 0.0)
+        z_num = self.u[:, 0][idx]
+
+        line_exact, = ax.plot(x_grid, z_exact, 'r-', label='Exact')
+        line_num, = ax.plot(x_mesh, z_num, 'bo-', label='Numerical')
+        ax.set_xlabel('x'); ax.set_ylabel('u')
+        ax.set_title('Time = 0.0')
+        ax.legend()
+        
+        # Slider
+        ax_slider = plt.axes([0.25, 0.1, 0.5, 0.03])
+        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime-1, valinit=0, valstep=1)
+
+        def update(val):
+            step = int(time_slider.val)
+            t = step*self.dt
+            line_exact.set_ydata(exact_func(x_grid, t))
+            line_num.set_ydata(self.u[:, step][idx])
+            ax.set_title(f'Time = {t:.3f}')
+            fig.canvas.draw_idle()
+
+        time_slider.on_changed(update)
+        plt.show()
 
     def visualize_3d_time(self, cmap = 'viridis'):
         """
@@ -372,310 +337,164 @@ class SolutionVisualizer:
 
         time_slider.on_changed(update)
         plt.show()
-    
-    def visualize_3d_time_error(self, exact_func, cmap='coolwarm'):
-        """
-        Visualize nodal FEM error |u_h - u_exact| over time.
 
-        The error is computed at mesh vertices only, which is
-        well-defined for Schwarz methods and higher-order FEM.
+    def _plot_error_1D_static(self, exact, figsize: tuple = (7, 4), dpi: int = 100, 
+                              xlabel: str = 'x', ylabel: str = 'error', title: str = '1D Steady-State Error', **kwargs):
+        x = self.mesh.vertices
+        err = self.u[:, 0] - exact(x)
+        plt.figure(figsize = figsize, dpi = dpi)
+        plt.plot(x, err, **kwargs)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.show()
 
-        Parameters
-        ----------
-        exact_func : callable
-            exact_func(x, y, t)
-        cmap : str
-            Colormap for error visualization
-        """
+    def _plot_error_1D_time(self, exact, figsize: tuple = (7, 4), dpi: int = 100, 
+                            xlabel: str = 'x', ylabel: str = 'error', title: str = '1D Time-Dependent Error', **kwargs):
+        x = self.mesh.vertices
+        fig, ax = plt.subplots(figsize = figsize, dpi = dpi)
+        line, = ax.plot(x, self.u[:, 0] - exact(x, 0), **kwargs)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
 
+        # Slider
+        ax_slider = plt.axes((0.2, 0.1, 0.6, 0.03))
+        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime - 1, valinit=0, valstep=1)
+
+        def update(val):
+            step = int(time_slider.val)
+            err = self.u[:, step] - exact(x, step*self.dt)
+            line.set_ydata(err)
+            ax.set_title(f'{title} | t={step*self.dt:.3f}')
+            fig.canvas.draw_idle()
+
+        time_slider.on_changed(update)
+        plt.show()
+
+    def _plot_error_2D_static(self, exact, figsize: tuple = (7, 6), dpi: int = 100, 
+                              xlabel: str = 'x', ylabel: str = 'y', zlabel: str = 'error', title: str = '2D Steady-State Error', **kwargs):
         x = self.mesh.vertices[:, 0]
         y = self.mesh.vertices[:, 1]
-        elements = self.mesh.elements
-        triang = mtri.Triangulation(x, y, elements)
-
-        fig = plt.figure(figsize=(7, 6))
+        triang = mtri.Triangulation(x, y, self.mesh.elements)
+        err = self.u[:, 0] - exact(x, y)
+        fig = plt.figure(figsize = figsize, dpi = dpi)
         ax = fig.add_subplot(111, projection='3d')
-        plt.subplots_adjust(bottom=0.25)
+        surf = ax.plot_trisurf(triang, err, **kwargs)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_zlabel(zlabel)
+        ax.set_title(title)
+        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='u_h - u_exact')
+        plt.show()
 
-        # Initial error
-        t0 = 0.0
-        u_exact = exact_func(x, y, t0)
-        u_num = self.u[:, 0]
-        err = u_num - u_exact
-
-        surf = ax.plot_trisurf(triang, err, cmap=cmap, edgecolor='k', linewidth=0.2)
-        ax.set_title(f'Nodal Error | t={t0:.3f}')
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('error')
-
+    def _plot_error_2D_time(self, exact, figsize: tuple = (7, 6), dpi: int = 100, 
+                            xlabel: str = 'x', ylabel: str = 'y', zlabel: str = 'error', title: str = '2D Time-Dependent Error', **kwargs):
+        x = self.mesh.vertices[:, 0]
+        y = self.mesh.vertices[:, 1]
+        triang = mtri.Triangulation(x, y, self.mesh.elements)
+        fig = plt.figure(figsize = figsize, dpi = dpi)
+        ax = fig.add_subplot(111, projection='3d')
+        surf = ax.plot_trisurf(triang, self.u[:, 0] - exact(x, y, 0), **kwargs)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_zlabel(zlabel)
+        ax.set_title(title)
         fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='u_h - u_exact')
 
         # Slider
         ax_slider = plt.axes((0.2, 0.1, 0.6, 0.03))
-        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime - 1,
-                            valinit=0, valstep=1)
+        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime - 1, valinit=0, valstep=1)
 
         def update(val):
             step = int(time_slider.val)
-            t = step * self.dt
-
+            err = self.u[:, step] - exact(x, y, step * self.dt)
             ax.cla()
-
-            u_exact = exact_func(x, y, t)
-            u_num = self.u[:, step]
-            err = u_num - u_exact
-
-            ax.plot_trisurf(triang, err, cmap=cmap, edgecolor='k', linewidth=0.2)
-            ax.set_title(f'Nodal Error | t={t:.3f}')
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
-            ax.set_zlabel('error')
-
+            ax.plot_trisurf(triang, err, **kwargs)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            ax.set_zlabel(zlabel)
+            ax.set_title(f'{title} | t={step * self.dt:.3f}')
+            fig.colorbar(surf, ax = ax, shrink = 0.5, aspect = 10, label = zlabel)
             fig.canvas.draw_idle()
 
         time_slider.on_changed(update)
         plt.show()
-
-    def write_vtk(self, filename: str, exact):
+    
+    def plot_error(self, exact: Callable, figsize: tuple = (7, 6), dpi: int = 100, 
+                   xlabel: str = 'x', ylabel: str = 'y', zlabel: str = 'error', title: str = 'Error', **kwargs):
         """
-        Write FEM solution, exact solution, and error
-        for the Poisson problem -Δu = f to a VTK (.vtu) file.
-        """
+        Plot the FEM solution error |u_h - u_exact| for both steady-state and time-dependent problems.
 
-        if not filename.endswith(".vtu"):
-            filename += ".vtu"
-
-        # Mesh points
-        points = self.mesh.vertices
-        if points.shape[1] == 2:
-            points = np.column_stack([points, np.zeros(points.shape[0])])
-
-        # Linear triangular elements (P1)
-        cells = [("triangle", self.mesh.elements.astype(np.int64))]
-
-        # Numerical solution
-        u_h = self.u.ravel()
-
-        # Exact solution at nodes
-        x = self.mesh.vertices[:, 0]
-        y = self.mesh.vertices[:, 1]
-        u_ex = exact(x, y)
-
-        # Error
-        error = u_h - u_ex
-
-        mesh = meshio.Mesh(
-            points=points,
-            cells=cells,
-            point_data={
-                "u_h": u_h,
-                "u_exact": u_ex,
-                "error": error,
-                "abs_error": np.abs(error),
-            }
-        )
-
-        meshio.write(filename, mesh)
-
-    def write_vtk_time(self, filename: str, step: int = 0):
-        """
-        Write FEM solution at a given time step to a VTK (.vtu) file
-        readable by ParaView.
+        The error is computed at mesh vertices only, which is well-defined for Schwarz methods 
+        and higher-order FEM. Works for both 1D and 2D problems. For time-dependent problems, 
+        an interactive time slider is provided to visualize the error at each time step.
 
         Parameters
         ----------
-        filename : str
-            Output file name (with or without .vtu)
-        step : int, optional
-            Time step index (default 0)
+        exact : Callable
+                For time-dependent problems, should be exact(x, t) for 1D or exact(x, y, t) for 2D. 
+                For steady-state problems, should be exact(x) for 1D or exact(x, y) for 2D.
+        figsize : tuple, optional
+                Figure size for the plot (default (7, 6)).
+        dpi : int, optional
+                Dots per inch for the plot (default 100).
+        xlabel : str, optional
+                Label for the x-axis (default 'x').
+        ylabel : str, optional
+                Label for the y-axis (default 'y').
+        zlabel : str, optional
+                Label for the z-axis (default 'error').
+        title : str, optional
+                Title of the plot (default 'Error').
+        **kwargs : dict
+                Additional keyword arguments to pass to the specific plotting functions, 
+                e.g., cmap for colormap, levels for contour levels, etc.
         """
-
-        if not filename.endswith(".vtu"):
-            filename += ".vtu"
-
-        # Mesh data
-        points = self.mesh.vertices
-        if points.shape[1] == 2:
-            # VTK expects 3D points
-            points = np.column_stack([points, np.zeros(len(points))])
-
-        cells = [("triangle", self.mesh.elements)]
-
-        # Solution at time step
-        u_step = self.u[:, step]
-
-        mesh = meshio.Mesh(
-            points=points,
-            cells = cells,
-            point_data={"u": u_step}
-        )
-
-        meshio.write(filename, mesh)
-
-    def write_vtk_time_series(self, exact_func, folder="vtk_output", prefix="solution"):
-        """
-        Write time-dependent FEM solution, exact solution,
-        and nodal error to a VTK time series for ParaView.
-
-        Point data written:
-        - u_h      : numerical FEM solution
-        - u_exact  : exact solution at mesh vertices
-        - error    : u_h - u_exact
-        """
-
-        os.makedirs(folder, exist_ok=True)
-
-        # --- Mesh points ---
-        points = self.mesh.vertices
-        if points.ndim == 2 and points.shape[1] == 2:
-            points = np.column_stack([points, np.zeros(points.shape[0])])
-
-        cells = [("triangle", self.mesh.elements)]
-
-        x = self.mesh.vertices[:, 0]
-        y = self.mesh.vertices[:, 1]
-
-        pvd_entries = []
-
-        for k in range(self.ntime):
-            t = k * self.dt if self.dt is not None else 0.0
-
-            # Numerical solution
-            u_h = self.u[:, k]
-
-            # Exact solution at vertices
-            u_exact = exact_func(x, y, t)
-
-            # Error
-            error = u_h - u_exact
-
-            mesh = meshio.Mesh(
-                points=points,
-                cells=cells,
-                point_data={
-                    "u_h": u_h,
-                    "u_exact": u_exact,
-                    "error": error
-                }
-            )
-
-            vtu_name = f"{prefix}_{k:04d}.vtu"
-            vtu_path = os.path.join(folder, vtu_name)
-
-            meshio.write(vtu_path, mesh)
-
-            pvd_entries.append((vtu_name, t))
-
-        # --- Write PVD file ---
-        pvd_path = os.path.join(folder, f"{prefix}.pvd")
-        with open(pvd_path, "w") as f:
-            f.write('<?xml version="1.0"?>\n')
-            f.write('<VTKFile type="Collection" version="0.1">\n')
-            f.write("  <Collection>\n")
-            for name, t in pvd_entries:
-                f.write(
-                    f'    <DataSet timestep="{t}" file="{name}"/>\n'
-                )
-            f.write("  </Collection>\n")
-            f.write("</VTKFile>\n")
-
-    def c_write_vtk_time_series(self, exact_func, folder="vtk_output", prefix="solution"):
-
-        os.makedirs(folder, exist_ok=True)
-
-        # --- Mesh points ---
-        points = self.mesh.vertices  # all nodes including mid-edge/interior
-
-        # --- Cells (choose type based on degree) ---
-        if self.mesh.degree == 1:
-            cells = [("triangle", self.mesh.elements)]
-        elif self.mesh.degree == 2:
-            cells = [("triangle6", self.mesh.elements)]
-        elif self.mesh.degree == 3:
-            cells = [("triangle10", self.mesh.elements)]
+        if self.mesh.dim == 1 and self.ntime == 1:
+            self._plot_error_1D_static(exact, figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, zlabel=zlabel, title=title, **kwargs)
+        elif self.mesh.dim == 1 and self.ntime > 1:
+            self._plot_error_1D_time(exact, figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, zlabel=zlabel, title=title, **kwargs)
+        elif self.mesh.dim == 2 and self.ntime == 1:
+            self._plot_error_2D_static(exact, figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, zlabel=zlabel, title=title, **kwargs)
+        elif self.mesh.dim == 2 and self.ntime > 1:
+            self._plot_error_2D_time(exact, figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, zlabel=zlabel, title=title, **kwargs)
         else:
-            raise NotImplementedError(f"Degree {self.mesh.degree} not supported")
-
-        x = points[:, 0]
-        y = points[:, 1]
-
-        pvd_entries = []
-
-        for k in range(self.ntime):
-            t = k * self.dt if self.dt is not None else 0.0
-
-            # Numerical solution (all DOFs)
-            u_h = self.u[:, k]
-
-            # Exact solution at mesh points
-            u_exact = exact_func(x, y, t)
-
-            # Error
-            error = u_h - u_exact
-
-            mesh = meshio.Mesh(
-                points=points,
-                cells=cells,
-                point_data={
-                    "u_h": u_h,
-                    "u_exact": u_exact,
-                    "error": error
-                }
-            )
-
-            vtu_name = f"{prefix}_{k:04d}.vtu"
-            vtu_path = os.path.join(folder, vtu_name)
-            meshio.write(vtu_path, mesh)
-
-            pvd_entries.append((vtu_name, t))
-
-        # --- Write PVD file ---
-        pvd_path = os.path.join(folder, f"{prefix}.pvd")
-        with open(pvd_path, "w") as f:
-            f.write('<?xml version="1.0"?>\n')
-            f.write('<VTKFile type="Collection" version="0.1">\n')
-            f.write("  <Collection>\n")
-            for name, t in pvd_entries:
-                f.write(f'    <DataSet timestep="{t}" file="{name}"/>\n')
-            f.write("  </Collection>\n")
-            f.write("</VTKFile>\n")
-
-    def visualize_1d_time_compare(self, exact_func, nx=200):
+            raise ValueError("Unsupported mesh dimension or time steps")
+    
+    def plot_convergence(self, error_history, logscale: bool = True, figsize: tuple = (6, 4), dpi: int = 150,
+                         xlabel: str = "Iteration", ylabel: str = r"$\| u_h - u \|_{L^2}$", 
+                         title: str = r"Iteration vs $L^{2}$ Error", **kwargs):
         """
-        Compare 1D FEM solution with exact solution over time.
-        
-        exact_func(x, t)
+        Plot convergence history of Schwarz iterations.
+
+        Parameters
+        ----------
+        error_history : list or array
+            List of error values per iteration.
+        logscale : bool, default True
+            If True, use semilog-y scale (recommended for convergence plots).
+        figsize : tuple, default (6, 4)
+            Figure size in inches.
+        dpi : int, default 150
+            Dots per inch for the figure.
+        title : str, default "Iteration vs L2 Error"
+            Plot title.
+        **kwargs : dict
+            Additional keyword arguments to pass to plt.plot / plt.semilogy
+            e.g., marker='o', color='r', linewidth=2, linestyle='--', alpha=0.7
         """
-
-        idx = np.argsort(self.mesh.vertices)
-        x_mesh = self.mesh.vertices[idx]
-        x_grid = np.linspace(x_mesh.min(), x_mesh.max(), nx)
-
-        fig, ax = plt.subplots(figsize=(8,5))
-        plt.subplots_adjust(bottom=0.25)
-
-        # Initial plot
-        z_exact = exact_func(x_grid, 0.0)
-        z_num = self.u[:, 0][idx]
-
-        line_exact, = ax.plot(x_grid, z_exact, 'r-', label='Exact')
-        line_num, = ax.plot(x_mesh, z_num, 'bo-', label='Numerical')
-        ax.set_xlabel('x'); ax.set_ylabel('u')
-        ax.set_title('Time = 0.0')
-        ax.legend()
-        
-        # Slider
-        ax_slider = plt.axes([0.25, 0.1, 0.5, 0.03])
-        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime-1, valinit=0, valstep=1)
-
-        def update(val):
-            step = int(time_slider.val)
-            t = step*self.dt
-            line_exact.set_ydata(exact_func(x_grid, t))
-            line_num.set_ydata(self.u[:, step][idx])
-            ax.set_title(f'Time = {t:.3f}')
-            fig.canvas.draw_idle()
-
-        time_slider.on_changed(update)
+        iterations = range(1, len(error_history) + 1)
+        plt.figure(figsize=figsize, dpi=dpi)
+        if logscale:
+            plt.semilogy(iterations, error_history, **kwargs)
+        else:
+            plt.plot(iterations, error_history, **kwargs)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.grid(True)
+        plt.tight_layout()
         plt.show()
+
+    # add vtk versions as well

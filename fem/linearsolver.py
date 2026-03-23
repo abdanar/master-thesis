@@ -236,8 +236,11 @@ class DirectSolver(LinearSolver):
         ValueError
             If `A` and `b` shapes are incompatible.
         """
+
         if self._lu is None or self._A_id != id(A):
             self.setup(A)
+
+        self.setup(A) # <- will be changed to check if A is the same as before, if not recompute LU factorization
 
         if self._is_sparse:
             return self._lu.solve(b)

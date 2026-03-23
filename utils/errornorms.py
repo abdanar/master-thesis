@@ -1,9 +1,11 @@
 import numpy as np
 from fem.femspace import FEMSpace
 from fem.quadrature import interval_quadrature, triangle_quadrature
+from typing import Callable, Optional
 
 class ErrorNorms:
-    def __init__(self, femspace: FEMSpace, u1: np.ndarray, u2 = None, u_exact = None, grad_u_exact = None, time: np.ndarray = None, mode: str = 'auto'):
+    def __init__(self, femspace: FEMSpace, u1: np.ndarray, u2: Optional[np.ndarray] = None, u_exact: Optional[Callable] = None, 
+                 grad_u_exact: Optional[Callable] = None, time: Optional[np.ndarray] = None, mode: str = 'auto'):
         """
         Compute various error norms for FEM solutions.
 
@@ -19,10 +21,10 @@ class ErrorNorms:
             Primary FEM solution to compare.
         u2 : np.ndarray, optional
             Secondary FEM solution for FEM-to-FEM error computation.
-        u_exact : callable, optional
+        u_exact : Callable, optional
             Exact solution function `u_exact(x)` for FEM-to-exact comparison.
             Should accept either scalar (1D) or array-like (2D) coordinates.
-        grad_u_exact : callable, optional
+        grad_u_exact : Callable, optional
             Gradient of the exact solution, required for H¹-based norms.
             Should return a vector at given coordinates.
         mode : {'auto', 'exact', 'fem'}, default='auto'

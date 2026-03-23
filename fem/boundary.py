@@ -72,10 +72,10 @@ class BoundaryCondition(ABC):
     """
     def __init__(self, femspace: "FEMSpace"):
         self.femspace = femspace
-        self.nnodes = self.femspace.mesh.nnodes()
+        self.nnodes = self.femspace.nnodes
 
     @abstractmethod
-    def apply(self, K: np.ndarray | sparray, rhs: np.ndarray) -> tuple[np.ndarray | sparray, np.ndarray]:
+    def apply(self, K: np.ndarray | sparray, rhs: Optional[np.ndarray] = None) -> tuple[np.ndarray | sparray, Optional[np.ndarray]]:
         """
         Apply the boundary condition to the linear system.
 
@@ -87,17 +87,17 @@ class BoundaryCondition(ABC):
         ----------
         K : ndarray or sparray
             Global system matrix of shape (n, n).
-        rhs : ndarray
-            Right-hand side vector or matrix. If multiple columns are
-            present, each column represents a separate right-hand side
-            (for example, multiple time steps).
+        rhs : ndarray, optional
+            Right-hand side vector(s). If multiple columns are
+            present, each column represents a separate right-hand side.
 
         Returns
         -------
         K : ndarray or sparray
             Modified system matrix.
-        rhs : ndarray
-            Modified right-hand side vector or matrix.
+        rhs : ndarray, optional
+            Modified right-hand side vector(s). If multiple columns are present, 
+            the same modifications should be applied to each column.
         """
         pass
 
@@ -107,8 +107,7 @@ class DirichletBC(BoundaryCondition):
 
     This class enforces Dirichlet boundary conditions by modifying the global system
     matrix `K` and right-hand side vector `rhs` so that prescribed values at boundary
-    nodes are exactly satisfied. It supports both **static** and **time-dependent**
-    Dirichlet boundary conditions, and works efficiently for **dense and sparse matrices**.
+    nodes are exactly satisfied. It works efficiently for **dense and sparse matrices**.
 
     The classical strong imposition modifies the system as follows:
 
@@ -120,23 +119,22 @@ class DirichletBC(BoundaryCondition):
         - RHS is adjusted to incorporate Dirichlet values, preserving contributions
           to interior/Neumann nodes
 
-    For time-dependent BCs, the class can precompute values at all time steps, allowing
-    the RHS to be constructed once as a matrix with shape `(n_nodes, n_time_steps)`,
-    avoiding repeated modifications per time step.
-
     Parameters
     ----------
     femspace : FEMSpace
         Finite element space associated with the problem.
-    f : Callable
+    g : Callable or dict
         Prescribed boundary function. Can be:
-            - Static: `f(node)` → scalar
-            - Time-dependent: `f(node, t)` → scalar
-    markers : list | np.ndarray
+            - Static: `g(node)` → scalar
+            - Time-dependent: `g(node, t)` → scalar
+        If `g` is a dict, keys are treated as node indices and values as prescribed values.
+    markers : list | np.ndarray, optional
         Segment markers identifying which boundary nodes the Dirichlet BC applies to.
+        If `None` and g is dict, keys are treated as node indices. 
+        If `None` and g is callable, BC is applied to all boundary nodes.
     time_steps : np.ndarray, shape (n_time_steps,), optional
         1D array of time points at which Dirichlet values are evaluated. 
-        If `None`, BC is treated as static.
+        If `None`, BC is treated as static or it is assumed that `g` handles time-dependence internally.
 
     Attributes
     ----------
@@ -144,8 +142,10 @@ class DirichletBC(BoundaryCondition):
         User-defined segment markers for this Dirichlet condition.
     dirichlet_nodes : np.ndarray of shape (n_dirichlet_nodes,)
         Global node indices where the Dirichlet BC is applied.
-    dirichlet_nodes_coord : np.ndarray of shape (n_dirichlet_nodes, dim)
+    dirichlet_nodes_coord : np.ndarray
         Coordinates of Dirichlet nodes.
+        - For 1D: shape (n_dirichlet_nodes,)
+        - For 2D: shape (n_dirichlet_nodes, 2)
     dirichlet_values : np.ndarray
         Precomputed Dirichlet values:
             - Shape `(n_dirichlet_nodes, 1)` for static BC
@@ -160,27 +160,23 @@ class DirichletBC(BoundaryCondition):
     - Only boundary DOFs should be assigned Dirichlet values.
     - Boundary nodes not included in `markers` are treated as free (Neumann or interior).
     - Sparse matrices are efficiently modified using diagonal masks to avoid loops.
-    - Precomputing time-dependent values allows RHS assembly for all steps in a single
-      matrix operation.
-
-    Examples
-    --------
-    # Static Dirichlet BC
-    bc = DirichletBC(femspace, f=lambda x: 0, markers=[1,2])
-    K_mod, rhs_mod = bc.apply(K, rhs)
-
-    # Time-dependent Dirichlet BC
-    time_steps = np.linspace(0, 1, 100)
-    bc_time = DirichletBC(femspace, f=lambda x, t: x*t, markers=[1,2], time_steps=time_steps)
-    rhs_mod = bc_time.construct_rhs_all_time(K, rhs)  # returns RHS matrix for all time steps
     """
-    def __init__(self, femspace: FEMSpace, f: Callable, markers: list | np.ndarray, time_steps: Optional[np.ndarray] = None):
+    def __init__(self, femspace: FEMSpace, g: Callable | dict, markers: Optional[list | np.ndarray] = None, time_steps: Optional[np.ndarray] = None):
         super().__init__(femspace)
+        self.is_time_dependent = time_steps is not None or (isinstance(g, dict) and any(isinstance(v, (list, np.ndarray)) for v in g.values()))
         self.time_steps = time_steps
-        self.f = self.vectorize(f)
-        self.dirichlet_nodes = self.femspace.mesh.get_nodes(markers)
-        self.dirichlet_nodes_coord = self.femspace.mesh.vertices[self.dirichlet_nodes]
-        self.dirichlet_values = self.f(self.dirichlet_nodes_coord)
+        if isinstance(g, Callable):
+            self.g = self.vectorize(g)
+            if markers is None: # Apply to all boundary nodes if no markers provided
+                self.dirichlet_nodes = np.fromiter(self.femspace.mesh.boundary_nodes(), dtype=int)
+            else:
+                self.dirichlet_nodes = self.femspace.mesh.get_nodes(markers)
+            self.dirichlet_values = self.g(self.femspace.mesh.vertices[self.dirichlet_nodes])
+        else:
+            if markers is not None:
+                raise ValueError("When g is a dict, markers should be None. The keys of the dict are treated as node indices.")
+            self.dirichlet_nodes = np.fromiter(g.keys(), dtype = int)
+            self.dirichlet_values = np.fromiter(g.values(), dtype = float).reshape(-1, 1)
         # Prepare masks for sparse matrix modification
         mask = np.ones(self.nnodes)
         mask[self.dirichlet_nodes] = 0.0
@@ -191,7 +187,7 @@ class DirichletBC(BoundaryCondition):
 
     def vectorize(self, f: Callable):
         if self.femspace.dim == 1:
-            X = lambda x: x[:,0][:, None]  # (n,1) always
+            X = lambda x: x[:, None]  # (n,1) always
             if self.time_steps is None:
                 return lambda x: f(X(x))            # returns (n,1)
             else:
@@ -207,7 +203,7 @@ class DirichletBC(BoundaryCondition):
         else:
             raise ValueError(f"Unsupported dimension: {self.femspace.dim}. Only 1D and 2D meshes are supported.")
 
-    def apply(self, K: np.ndarray | sparray, rhs: np.ndarray, copy: bool = True) -> tuple[np.ndarray | sparray, np.ndarray]:
+    def apply(self, K: np.ndarray | sparray, rhs: Optional[np.ndarray] = None, time_step: Optional[int] = None, copy: bool = True, modify_K: bool = True) -> tuple[np.ndarray | sparray, Optional[np.ndarray]]:
         """
         The function modifies the linear system
             K u = rhs
@@ -269,18 +265,25 @@ class DirichletBC(BoundaryCondition):
         ----------
         K : np.ndarray or scipy.sparse.sparray
             Global system matrix of shape (n, n).
-        rhs : np.ndarray of shape (n, 1) or (n, m)
-            Right-hand side vector(s). Multiple RHS vectors are supported for 
-            time-dependent problems, where each column corresponds to a time step.
+        rhs : np.ndarray of shape (n, 1) or (n, m), optional
+            Right-hand side vector(s). Multiple RHS vectors are supported, 
+            where each column corresponds to different load cases.
+        time_step : int, optional, default=None
+            Current time step index. This is used for time-dependent Dirichlet conditions.
         copy : bool, optional, default=True
             If True, create copies of K and rhs and apply modifications to them.
             If False, dense matrices are modified in-place; sparse matrices return a new matrix.
+        modify_K : bool, optional, default=True
+            If True, modify the matrix K to enforce Dirichlet conditions.
+            If False, only modify the RHS vector(s) to account for Dirichlet values, 
+            without changing K. This can be useful when K is reused across time steps 
+            and only the RHS changes due to time-dependent BCs.
             
         Returns
         -------
         K : np.ndarray or scipy.sparse.sparray
             Matrix with Dirichlet constraints applied.
-        rhs : np.ndarray
+        rhs : np.ndarray of shape (n, 1) or (n, m), optional
             Right-hand side vector(s) with Dirichlet constraints applied.
 
         Notes
@@ -291,29 +294,50 @@ class DirichletBC(BoundaryCondition):
         - When ``copy=False``, the input matrix and RHS are modified in-place.
         - Sparse matrices are modified using a diagonal masking approach
           to avoid costly format conversions.
+        - The ``modify_K`` parameter controls whether the matrix K is modified
+          to enforce Dirichlet conditions. If False, only the RHS is updated.
+          This is useful for time-dependent problems where K is constant and only the RHS changes.
         """
         logger.debug(f"Applying nodal Dirichlet BC to {len(self.dirichlet_nodes)} nodes")
-        if copy and not isinstance(K, sparray):
-            K = K.copy()
+        
+        # If not modifying K and rhs is None, there is nothing to modify, so we raise an error to avoid silent failures.
+        if rhs is None and not modify_K:
+            raise ValueError("If modify_K is False, rhs must be provided to account for Dirichlet contributions.")
+        
+        # Make copies if requested (for dense matrices, in-place modification is possible)
+        if rhs is not None and copy:
             rhs = rhs.copy()
+
+        # For sparse matrices, we return a new modified matrix. For dense matrices, we modify in-place if copy=False.
+        if copy and not isinstance(K, sparray) and modify_K:
+            K = K.copy()
+        
+        # Apply the Dirichlet BC using the appropriate method for dense or sparse matrices
         if isinstance(K, sparray):
-            K = self._apply_sparse(K, rhs)
+            K = self._apply_sparse(K, rhs, time_step, modify_K)
         else:
-            self._apply_dense(K, rhs)
+            self._apply_dense(K, rhs, time_step, modify_K)
         logger.debug("Nodal Dirichlet BC applied")
+
         return K, rhs
 
-    def _apply_dense(self, K: np.ndarray, rhs: np.ndarray):
-        rhs -= K[:, self.dirichlet_nodes] @ self.dirichlet_values
-        if rhs.ndim == 1:
-            rhs[self.dirichlet_nodes] = self.dirichlet_values
-        else:
-            rhs[self.dirichlet_nodes, :] = self.dirichlet_values
-        K[self.dirichlet_nodes, :] = 0.0
-        K[:, self.dirichlet_nodes] = 0.0
-        K[self.dirichlet_nodes, self.dirichlet_nodes] = 1.0
+    def _apply_dense(self, K: np.ndarray, rhs: Optional[np.ndarray] = None, time_step: Optional[int] = None, modify_K: bool = True):
+        if rhs is not None: 
+            if time_step is not None:
+                mult = self.dirichlet_values[:, time_step:time_step+1]  # (n_dirichlet_nodes, 1)
+            else:
+                mult = self.dirichlet_values  # (n_dirichlet_nodes, 1)
+            rhs -= K[:, self.dirichlet_nodes] @ mult
+            if rhs.shape[1] == 1:
+                rhs[self.dirichlet_nodes] = mult
+            else:
+                rhs[self.dirichlet_nodes, :] = mult
+        if modify_K:
+            K[self.dirichlet_nodes, :] = 0.0
+            K[:, self.dirichlet_nodes] = 0.0
+            K[self.dirichlet_nodes, self.dirichlet_nodes] = 1.0
 
-    def _apply_sparse(self, K: sparray, rhs: np.ndarray) -> sparray:
+    def _apply_sparse(self, K: sparray, rhs: Optional[np.ndarray] = None, time_step: Optional[int] = None, modify_K: bool = True) -> sparray:
         """
         Apply Dirichlet BCs to scipy sparse matrices.
 
@@ -329,8 +353,16 @@ class DirichletBC(BoundaryCondition):
         This avoids format conversions (CSR <-> CSC) and Python loops,
         using only sparse matrix-matrix multiplies (optimized in C).
         """
-        print(type(K))
-        rhs -= K[:, self.dirichlet_nodes] @ self.dirichlet_values # type: ignore
-        rhs[self.dirichlet_nodes, :] = self.dirichlet_values
-        K = self._interior_mask @ K @ self._interior_mask + self._boundary_mask
+        if rhs is not None:
+            if time_step is not None:
+                mult = self.dirichlet_values[:, time_step:time_step+1]  # (n_dirichlet_nodes, 1)
+            else:
+                mult = self.dirichlet_values  # (n_dirichlet_nodes, 1)
+            rhs -= K[:, self.dirichlet_nodes] @ mult  # type: ignore
+            if rhs.shape[1] == 1:
+                rhs[self.dirichlet_nodes] = mult  # type: ignore
+            else:
+                rhs[self.dirichlet_nodes, :] = mult  # type: ignore
+        if modify_K:
+            K = self._interior_mask @ K @ self._interior_mask + self._boundary_mask
         return K

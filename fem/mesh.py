@@ -74,9 +74,9 @@ class Mesh:
                 n = len(self.vertices)
                 self.elements = np.column_stack((np.arange(n-1), np.arange(1, n)))
             else:
-                self.elements = np.asarray(elements, dtype=int)
-            self.segments = None
-            self.segment_markers = None
+                self.elements = np.asarray(elements, dtype = int)
+            self.segments = np.sort(np.fromiter(self.boundary_nodes(), dtype=int)) # in 1D, segments are just the boundary nodes
+            self.segment_markers = np.array([1, 2], dtype = int) # default segment markers for 1D: 1 for left boundary, 2 for right boundary
         elif dim == 2:
             if elements is None:
                 data = {"vertices": vertices}
@@ -765,7 +765,7 @@ class Mesh:
         return subdomains
 
     # For optimization, split this function to several parts!
-    def decompose(self, n: int, overlap: int = 0, mtype: str = 'unstructured', edge_weights = None): # Element-based partitioning
+    def decompose(self, n: int, overlap: int = 0, edge_weights = None): # Element-based partitioning
         """
         Decompose the mesh into `n` subdomains using PyMetis, with optional overlapping layers.
 
@@ -1181,7 +1181,7 @@ class Mesh:
             subdomain_maps[s] = maps
 
         # Note that returned `membership` array is for non-overlapping domain decomposition!
-        return subdomains, local_to_global_mappings, subdomain_maps, np.array(membership, dtype = int)
+        return subdomains, local_to_global_mappings, global_to_local_mappings, subdomain_maps, np.array(membership, dtype = int)
 
     def is_in_interval(self, point: float, interval: list | np.ndarray, tol: float = 1e-12) -> bool:
         """

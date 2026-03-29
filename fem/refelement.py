@@ -27,6 +27,16 @@ import numpy as np
 #   - Degree >= 3: vertex + edge + interior nodes
 # --------------------------------------------------------------------------
 
+# -------------------------- Optimization Notes --------------------------------
+# The functions defined here is called repeatedly during assembly and solution 
+# of the PDEs, so it is crucial to optimize them for performance.
+# Both 1D and 2D cases are implemented are handled in a unified way, and since 
+# these functions are called for every element and quadrature point, we should 
+# avoid unnecessary condition checks inside the loops. Instead, we can separate 
+# 1D and 2D implementations where needed, while keeping the overall structure
+# consistent.
+# ------------------------------------------------------------------------------
+
 class ReferenceElement:
     def __init__(self, dim: int = 2, domain: str = 'triangle', space: str = 'Lagrange', degree: int = 1):
         """

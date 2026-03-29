@@ -5,6 +5,7 @@ from fem.assembler import Assembler
 from fem.linearsolver import *
 from fem.boundary import DirichletBC
 import utils.logger as log 
+from typing import Optional
 
 logger = log.setup_logger(__name__, level = 'info')
 
@@ -29,15 +30,60 @@ class PoissonProblem:
             - If it is a function, it should be defined as g(x) for 1D or g(x, y) for 2D problems.
             - If it is a dictionary, the keys should be global node indices corresponding to the boundary nodes, 
               and the values should be the Dirichlet values at those nodes. For example: {0: 0.0, 5: 1.0, ...}
+
+        Warning to users
+        ----------------
+        If `solve` is called only once, then this class introduce unnecessary overhead from 
+        assembling the system matrix, applying boundary conditions and converting to CSR/CSC formats. 
+        However, if `solve` is called multiple times with different boundary conditions (by providing `g_new`), 
+        then this class is efficient as it allows reusing the assembled system and only updates
+        the boundary conditions without needing to reassemble the entire system. 
+        This can be particularly beneficial for parametric studies or time-dependent problems 
+        where boundary conditions evolve, as it avoids redundant computations and can significantly 
+        reduce the overall runtime.
         """
         self.femspace = femspace
         self.f = f
         self.g = g
         self.dim = femspace.dim
 
-    def solve(self, lift: str = 'nodal', solver: LinearSolver = DirectSolver(), **kwargs):
+        # Define the diffusion coefficient (identity for standard Poisson problem)
+        if self.dim == 1:
+            diffusion = lambda x: 1
+        elif self.dim == 2:
+            diffusion = lambda x, y: np.eye(2)
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}")
+
+        # Assemble the system matrix and load vector for the Poisson problem
+        assembler = Assembler(self.femspace)
+        self.lhs_base = assembler.global_stiffness_matrix(diffusion=diffusion)
+        self.rhs_base = assembler.global_load_vector(self.f)
+
+        # Convert LHS to both CSR and CSC formats for efficient use with different solvers
+        self.lhs_csr = self.lhs_base.tocsr()  # for iterative solvers (fast row slicing)
+        self.lhs_csc = self.lhs_base.tocsc()  # for direct solvers (LU, column operations)
+
+        # Initialize the boundary condition handler (for nodal lifting)
+        self.boundary = DirichletBC(femspace=self.femspace, g=self.g)
+
+        # Store modified LHS with Dirichlet nodes applied (for nodal lifting)
+        self.lhs_csr_mod, _ = self.boundary.apply(K = self.lhs_csr, modify_K = True)
+        self.lhs_csc_mod, _ = self.boundary.apply(K = self.lhs_csc, modify_K = True)
+    
+    def solve(self, lift: str = 'nodal', solver: LinearSolver = DirectSolver(), g_new: Optional[Callable | dict] = None, **kwargs):
         """
         Solves the Poisson problem using FEM discretization and specified boundary condition handling.
+
+        It supports two methods for enforcing Dirichlet boundary conditions:
+
+        1. 'nodal': Directly modifies the system matrix and RHS to enforce Dirichlet BCs at the specified nodes.
+        2. 'harmonic': Computes a harmonic lifting function that satisfies the Dirichlet BCs and solves for the homogeneous part of the solution.
+
+        Most importantly, the method allows updating the Dirichlet boundary values on-the-fly by providing a new function or dictionary `g_new`. 
+        If `g_new` is provided, it updates the boundary handler with the new values before solving. This enables dynamic changes to the boundary 
+        conditions without needing to reassemble the entire system, which can be efficient for parametric studies or time-dependent problems where 
+        boundary conditions evolve.
 
         Parameters
         ----------
@@ -50,36 +96,39 @@ class PoissonProblem:
         solver : LinearSolver
             Linear solver to use for solving the linear system. Must be an instance of a class that 
             inherits from `LinearSolver`. Default is `DirectSolver()`.
+        g_new : Callable or dict, optional
+            New Dirichlet boundary condition function or dictionary to update the boundary handler before solving.
+            - If it is a function, it should be defined as g_new(x) for 1D or g_new(x, y) for 2D problems.
+            - If it is a dictionary, the keys should be global node indices corresponding to the boundary nodes, 
+              and the values should be the new Dirichlet values at those nodes. For example: {0: 0.0, 5: 1.0, ...}
+            If `g_new` is None, the existing boundary conditions defined by `self.g` will be used without modification.
         **kwargs
             Additional keyword arguments to pass to the boundary condition application method 
             (e.g., solver parameters for iterative solvers).
             
         Returns
         -------
-        np.ndarray
+        np.ndarray, shape (n_vertices,)
             The computed solution vector at the FEM nodes.
         """
-        if self.dim == 1:
-            diffusion = lambda x: 1
-        elif self.dim == 2:
-            diffusion = lambda x, y: np.eye(2)
-        else:
-            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-        pde_assembler = Assembler(self.femspace)
-        lhs = pde_assembler.global_stiffness_matrix(diffusion = diffusion).tocsc()
-        rhs = pde_assembler.global_load_vector(self.f)
+        # Update Dirichlet boundary values in the boundary handler (if needed)
+        if g_new is not None:
+            self.boundary.update_dirichlet_values(g_new)
+
         if lift == 'nodal':
-            boundary = DirichletBC(femspace = self.femspace, g = self.g)
-            A, b = boundary.apply(lhs, rhs, **kwargs)
-            return solver.solve(A, b, **kwargs)
+            # Note: Since the mesh and thus the Dirichlet nodes never change, lhs_mod (the LHS with Dirichlet nodes applied) does NOT need to be recomputed.
+            _, rhs = self.boundary.apply(K = self.lhs_csc, rhs = self.rhs_base, modify_K = False, **kwargs)
+            if isinstance(solver, DirectSolver):
+                return solver.solve(self.lhs_csc_mod, rhs, **kwargs) # type: ignore
+            else:
+                return solver.solve(self.lhs_csr_mod, rhs, **kwargs) # type: ignore
         # elif lift == 'harmonic':
-        #     boundary = HarmonicDirichletBC(self.femspace, self.dirichlet)
-        #     A, b = boundary.apply(Kstiff = lhs, rhs = rhs, solver = solver, **kwargs)
+        #     hom_boundary = DirichletBC(self.femspace, g = self.g)
+        #     A, b = hom_boundary.apply(Kstiff = lhs, rhs = rhs, solver = solver, **kwargs)
         #     u_hom = solver.solve(A, b, **kwargs)
         #     return u_hom + boundary.lift
         else:
             raise ValueError(f"Invalid lift type '{lift}'. Supported types are 'nodal' and 'harmonic'.")
-        
     
 # class HarmonicDirichletBC:
 #     """

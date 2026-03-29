@@ -53,13 +53,6 @@ class BoundaryCondition(ABC):
     nnodes : int
         Total number of nodes (degrees of freedom) in the mesh.
 
-    Notes
-    -----
-    - This class is not meant to be instantiated directly.
-    - Subclasses must implement :meth:`apply`.
-    - The method :meth:`apply` should return a modified matrix and
-      right-hand side consistent with the imposed boundary condition.
-
     Examples
     --------
     Typical usage in a solver:
@@ -87,17 +80,15 @@ class BoundaryCondition(ABC):
         ----------
         K : ndarray or sparray
             Global system matrix of shape (n, n).
-        rhs : ndarray, optional
-            Right-hand side vector(s). If multiple columns are
-            present, each column represents a separate right-hand side.
+        rhs : ndarray, optional, shape (n,)
+            Right-hand side vector.
 
         Returns
         -------
         K : ndarray or sparray
             Modified system matrix.
-        rhs : ndarray, optional
-            Modified right-hand side vector(s). If multiple columns are present, 
-            the same modifications should be applied to each column.
+        rhs : ndarray, optional, shape (n,)
+            Modified right-hand side vector.
         """
         pass
 
@@ -148,7 +139,7 @@ class DirichletBC(BoundaryCondition):
         - For 2D: shape (n_dirichlet_nodes, 2)
     dirichlet_values : np.ndarray
         Precomputed Dirichlet values:
-            - Shape `(n_dirichlet_nodes, 1)` for static BC
+            - Shape `(n_dirichlet_nodes,)` for static BC
             - Shape `(n_dirichlet_nodes, n_time_steps)` for time-dependent BC
     _interior_mask : sparse diagonal matrix
         Mask with 1 for interior DOFs and 0 for Dirichlet DOFs (used for sparse K modification)
@@ -175,33 +166,61 @@ class DirichletBC(BoundaryCondition):
         else:
             if markers is not None:
                 raise ValueError("When g is a dict, markers should be None. The keys of the dict are treated as node indices.")
-            self.dirichlet_nodes = np.fromiter(g.keys(), dtype = int)
-            self.dirichlet_values = np.fromiter(g.values(), dtype = float).reshape(-1, 1)
+            self.dirichlet_nodes = np.array(list(g.keys()), dtype = np.int64)
+            self.dirichlet_values = np.asarray(list(g.values()), dtype = np.float64) # shape (n_dirichlet_nodes,) or (n_dirichlet_nodes, n_time_steps) if time-dependent
         # Prepare masks for sparse matrix modification
-        mask = np.ones(self.nnodes)
+        mask = np.ones(self.nnodes, dtype = np.float64)
         mask[self.dirichlet_nodes] = 0.0
-        bc_diag = np.zeros(self.nnodes)
+        bc_diag = np.zeros(self.nnodes, dtype = np.float64)
         bc_diag[self.dirichlet_nodes] = 1.0
         self._interior_mask = diags_array(mask)
         self._boundary_mask = diags_array(bc_diag)
 
     def vectorize(self, f: Callable):
         if self.femspace.dim == 1:
-            X = lambda x: x[:, None]  # (n,1) always
             if self.time_steps is None:
-                return lambda x: f(X(x))            # returns (n,1)
+                return lambda x: f(x)  # x is (n,) → returns (n,)
             else:
-                T = self.time_steps[None, :]       # (1,m)
-                return lambda x: f(X(x), T)        # returns (n,m)
+                T = self.time_steps[None, :]  # shape (1, m)
+                return lambda x: f(x[:, None], T)  # returns (n, m)
         elif self.femspace.dim == 2:
-            XY = lambda x: (x[:,0][:, None], x[:,1][:, None])  # (n,1),(n,1)
             if self.time_steps is None:
-                return lambda x: f(*XY(x))                  # returns (n,1)
+                return lambda x: f(x[:, 0], x[:, 1])  # returns (n,)
             else:
-                T = self.time_steps[None, :]               # (1,m)
-                return lambda x: f(*XY(x), T)              # returns (n,m)
+                T = self.time_steps[None, :]  # shape (1, m)
+                return lambda x: f(x[:, 0][:, None], x[:, 1][:, None], T)  # returns (n, m)
         else:
-            raise ValueError(f"Unsupported dimension: {self.femspace.dim}. Only 1D and 2D meshes are supported.")
+            raise ValueError(f"Unsupported dimension: {self.femspace.dim}. Only 1D and 2D supported.")
+
+    def update_dirichlet_values(self, new_values: Callable | dict):
+        """
+        This function allows updating the Dirichlet values at runtime, which is useful for problems 
+        where K is constant but the BCs change over time (e.g., time-dependent problems or Schwarz iterations). 
+        When new_values is a dict, it replaces the existing g and dirichlet_values. When new_values is a callable, 
+        it updates dirichlet_values by evaluating the new function at the Dirichlet nodes. This allows for dynamic 
+        BCs without needing to create a new DirichletBC instance. Note that when using a callable, the markers 
+        and dirichlet_nodes remain unchanged, so the same set of nodes will be updated with new values.
+
+        Parameters
+        ----------
+        new_values : Callable or dict
+            New Dirichlet values. Can be:
+                - Callable: g(node) → scalar or g(node, t) → scalar for time-dependent BCs
+                - Dict: keys are node indices, values are prescribed values (static or time-dependent)
+        
+        Notes
+        -----
+        - When new_values is a dict, markers should be None and the keys are treated as node indices. The existing markers and dirichlet_nodes are ignored in this case.
+        - When new_values is a callable, the existing markers and dirichlet_nodes are used to evaluate the new values at those nodes. The function is vectorized for efficiency.
+        - This method allows for dynamic updating of Dirichlet values without modifying the structure of the boundary condition (i.e., which nodes are Dirichlet nodes remains the same).
+        """
+        if isinstance(new_values, dict):
+            self.g = new_values
+            self.dirichlet_nodes = np.fromiter(new_values.keys(), dtype=int)
+            self.dirichlet_values = np.fromiter(new_values.values(), dtype=float)
+        else:
+            self.g = self.vectorize(new_values)
+            self.dirichlet_values = self.g(self.femspace.mesh.vertices[self.dirichlet_nodes])
 
     def apply(self, K: np.ndarray | sparray, rhs: Optional[np.ndarray] = None, time_step: Optional[int] = None, copy: bool = True, modify_K: bool = True) -> tuple[np.ndarray | sparray, Optional[np.ndarray]]:
         """
@@ -265,9 +284,8 @@ class DirichletBC(BoundaryCondition):
         ----------
         K : np.ndarray or scipy.sparse.sparray
             Global system matrix of shape (n, n).
-        rhs : np.ndarray of shape (n, 1) or (n, m), optional
-            Right-hand side vector(s). Multiple RHS vectors are supported, 
-            where each column corresponds to different load cases.
+        rhs : np.ndarray of shape (n,), optional
+            Right-hand side vector.
         time_step : int, optional, default=None
             Current time step index. This is used for time-dependent Dirichlet conditions.
         copy : bool, optional, default=True
@@ -275,7 +293,7 @@ class DirichletBC(BoundaryCondition):
             If False, dense matrices are modified in-place; sparse matrices return a new matrix.
         modify_K : bool, optional, default=True
             If True, modify the matrix K to enforce Dirichlet conditions.
-            If False, only modify the RHS vector(s) to account for Dirichlet values, 
+            If False, only modify the RHS vector to account for Dirichlet values, 
             without changing K. This can be useful when K is reused across time steps 
             and only the RHS changes due to time-dependent BCs.
             
@@ -283,8 +301,8 @@ class DirichletBC(BoundaryCondition):
         -------
         K : np.ndarray or scipy.sparse.sparray
             Matrix with Dirichlet constraints applied.
-        rhs : np.ndarray of shape (n, 1) or (n, m), optional
-            Right-hand side vector(s) with Dirichlet constraints applied.
+        rhs : np.ndarray of shape (n,), optional
+            Right-hand side vector with Dirichlet constraints applied.
 
         Notes
         -----
@@ -323,15 +341,9 @@ class DirichletBC(BoundaryCondition):
 
     def _apply_dense(self, K: np.ndarray, rhs: Optional[np.ndarray] = None, time_step: Optional[int] = None, modify_K: bool = True):
         if rhs is not None: 
-            if time_step is not None:
-                mult = self.dirichlet_values[:, time_step:time_step+1]  # (n_dirichlet_nodes, 1)
-            else:
-                mult = self.dirichlet_values  # (n_dirichlet_nodes, 1)
+            mult = self.dirichlet_values[:, time_step] if time_step is not None else self.dirichlet_values
             rhs -= K[:, self.dirichlet_nodes] @ mult
-            if rhs.shape[1] == 1:
-                rhs[self.dirichlet_nodes] = mult
-            else:
-                rhs[self.dirichlet_nodes, :] = mult
+            rhs[self.dirichlet_nodes] = mult
         if modify_K:
             K[self.dirichlet_nodes, :] = 0.0
             K[:, self.dirichlet_nodes] = 0.0
@@ -354,15 +366,9 @@ class DirichletBC(BoundaryCondition):
         using only sparse matrix-matrix multiplies (optimized in C).
         """
         if rhs is not None:
-            if time_step is not None:
-                mult = self.dirichlet_values[:, time_step:time_step+1]  # (n_dirichlet_nodes, 1)
-            else:
-                mult = self.dirichlet_values  # (n_dirichlet_nodes, 1)
-            rhs -= K[:, self.dirichlet_nodes] @ mult  # type: ignore
-            if rhs.shape[1] == 1:
-                rhs[self.dirichlet_nodes] = mult  # type: ignore
-            else:
-                rhs[self.dirichlet_nodes, :] = mult  # type: ignore
+            mult = self.dirichlet_values[:, time_step] if time_step is not None else self.dirichlet_values
+            rhs -= K[:, self.dirichlet_nodes] @ mult # type: ignore
+            rhs[self.dirichlet_nodes] = mult # type: ignore
         if modify_K:
             K = self._interior_mask @ K @ self._interior_mask + self._boundary_mask
         return K

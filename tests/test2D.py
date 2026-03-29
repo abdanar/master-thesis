@@ -5,7 +5,7 @@ from triangle import triangulate
 from fom.heat import HeatProblem
 from fem.femspace import FEMSpace
 from fem.assembler import Assembler
-from fom.owrelaxation import WaveformRelaxation
+from fom.oswrelaxation import WaveformRelaxation
 
 # 2D Example (Overlapping Waveform Relaxation method for Heat problem)
 

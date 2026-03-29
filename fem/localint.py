@@ -15,6 +15,23 @@ logger = setup_logger(__name__, level = 'info')
 # c(x) is the reaction coefficient, and f(x) is the source term.
 # ---------------------------------------------------------------------------------------
 
+# -------------------------- Optimization Notes -----------------------------------
+# The current implementation of the LocalIntegrator is straightforward and directly 
+# computes the local matrices and load vectors from the definitions of the integrals. 
+# However, there are several opportunities for optimization:
+# 1. Precompute shape function values and gradients at quadrature points to avoid 
+#    redundant evaluations during the assembly process.
+# 2. Use vectorized operations to compute contributions from all basis functions 
+#    simultaneously, rather than using nested loops over i and j.
+# 3. Implement support for higher-order elements and more complex geometries, which 
+#    may require more sophisticated quadrature rules and shape function evaluations 
+#    to ensure accuracy and efficiency.
+# 4. Here, both 1D and 2D cases are implemented in the same methods with conditional 
+#    logic. For better performance, especially in large-scale problems, it may be 
+#    beneficial to separate the 1D and 2D implementations into different methods or 
+#    classes, allowing for more specialized optimizations in each case.
+# ---------------------------------------------------------------------------------
+
 class LocalIntegrator:
     def __init__(self, element: PhysicalElement, quadrature_order: int = 2):
         """
@@ -353,7 +370,7 @@ class LocalIntegrator:
 
         Returns
         -------
-        F : np.ndarray, shape (nbasis, 1)
+        F : np.ndarray, shape (nbasis,)
             The element-local load vector, where nbasis is the number of basis
             functions associated with the element.
 
@@ -369,7 +386,7 @@ class LocalIntegrator:
 
         # initialize local load vector
         nbasis = self.element.ref_element.nbasis
-        F = np.zeros((nbasis, 1))
+        F = np.zeros(nbasis)
 
         # loop over all quadrature points
         for node, weight in zip(self.ref_pts, self.weights):

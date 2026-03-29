@@ -101,7 +101,7 @@ class Assembler:
     # Define global load vector
     def global_load_vector(self, func: Callable, quadrature_order: int = 2) -> np.ndarray:
         logger.debug(f"Assembling global load vector for degree={self.degree}")
-        F_global = np.zeros((self.nnodes, 1))
+        F_global = np.zeros(self.nnodes)
         ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
         elements = self.mesh.elements
         for element in elements:

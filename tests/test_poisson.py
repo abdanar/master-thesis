@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from fem.mesh import Mesh
 from fem.femspace import FEMSpace
@@ -31,7 +32,7 @@ problem1D = PoissonProblem(femspace = femspace1D, f = func1D, g = exact1D)
 poisson_solution1D = problem1D.solve(lift = 'nodal')
 
 # Error analysis
-error1D = np.linalg.norm(poisson_solution1D.flatten() - exact1D(mesh1D.vertices))
+error1D = np.linalg.norm(poisson_solution1D - exact1D(mesh1D.vertices))
 print("L2 nodal error:", error1D)
 
 # ----------------------------
@@ -55,22 +56,33 @@ def exact2D(x, y):
 def func2D(x, y):
     return -(1 - np.pi**2)*np.exp(x)*np.sin(np.pi*y) - 2*y + 13*(np.pi**2)*np.sin(2*np.pi*x)*np.cos(3*np.pi*y)
 
+start = time.time()
 # Define 2D Poisson problem
 problem2D = PoissonProblem(femspace = femspace2D, f = func2D, g = exact2D)
 
 # Solve the 2D Poisson problem using nodal lifting
 poisson_solution2D = problem2D.solve(lift = 'nodal')
 
+end = time.time()
+print("Time taken to solve 2D Poisson problem:", end - start, "seconds")
+
 # Error analysis
-error2D = np.linalg.norm(poisson_solution2D.flatten() - exact2D(femspace2D.mesh.vertices[:,0], femspace2D.mesh.vertices[:,1]))
+error2D = np.linalg.norm(poisson_solution2D - exact2D(femspace2D.mesh.vertices[:,0], femspace2D.mesh.vertices[:,1]))
 print("L2 error (approx at nodes):", error2D)
-
-# Visualize the solution and compare with the exact solution
-visualizer2D = SolutionVisualizer(mesh2D, poisson_solution2D)
-
 
 # Alternative test examples
 # def exact2D(x, y):
 #     return np.sin(np.pi*x)*np.sin(np.pi*y)
 # def func2D(x, y):
 #     return 2*(np.pi**2)*np.sin(np.pi*x)*np.sin(np.pi*y)
+
+# def exact2D(x, y):
+#     return (np.sin(2*np.pi*x) * np.sin(np.pi*y) + np.exp(-50*((x-0.5)**2 + (y-0.5)**2)))
+# def func2D(x, y):
+#     r2 = (x-0.5)**2 + (y-0.5)**2
+#     return (((2*np.pi)**2 + np.pi**2)*np.sin(2*np.pi*x) * np.sin(np.pi*y) + (200 - 10000*r2) * np.exp(-50*r2))
+
+# def exact2D(x, y):
+#     return (1 - np.exp(-20*x)) * np.sin(np.pi*y)
+# def func2D(x, y):
+#     return (400*np.exp(-20*x) + np.pi**2*(1 - np.exp(-20*x))) * np.sin(np.pi*y)

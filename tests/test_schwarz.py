@@ -1,4 +1,3 @@
-# main.py
 import numpy as np
 from fem.mesh import Mesh
 import visualization.visualize as visualize 
@@ -31,17 +30,17 @@ problem1D = PoissonProblem(femspace = femspace1D, f = func1D, g = exact1D)
 # Solve the 1D Poisson problem using nodal lifting
 poisson_solution1D = problem1D.solve(lift = 'nodal')
 
-# Define Schwarz problem with 3 subdomains and overlap of 1 layer of elements
-schproblem1D = SchwarzProblem(femspace = femspace1D, n = 3, overlap = 1, f = func1D, g = exact1D)
+# Define Schwarz problem with 2 subdomains and overlap of 1 layer of elements
+schproblem1D = SchwarzProblem(femspace = femspace1D, f = func1D, g = exact1D, n = 2, overlap = 1)
 
-# Compute the solution using nodal lifting
-#schwarz_solution1D = schproblem1D.solve(lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-15)
+# Solve the problem using the Schwarz method with RAS and nodal lifting
+schwarz_solution1D = schproblem1D.solve(lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-3)
 
 # Solve the problem using the Schwarz method with RAS and nodal lifting, while tracking convergence history
-schwarz_solution1D = schproblem1D.solve(lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 200, tol = 1e-9, history = True, uh = poisson_solution1D, exact = exact1D)
+# schwarz_solution1D = schproblem1D.solve(lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-3, history = True, uh = poisson_solution1D, exact = exact1D)
 
 # Error analysis (compute L2 error between schwarz solution and exact solution, as well as between schwarz solution and fem solution)
-error1D = np.linalg.norm(schwarz_solution1D.flatten() - exact1D(mesh1D.vertices))
+error1D = np.linalg.norm(schwarz_solution1D - exact1D(mesh1D.vertices))
 error_fem1D = np.linalg.norm(poisson_solution1D - schwarz_solution1D)
 print("L2 error (schwarz vs exact):", error1D)
 print("L2 error (schwarz vs fem):", error_fem1D)
@@ -58,7 +57,7 @@ visualizer1D.plot_convergence(error_history = schproblem1D.error_history, linewi
 vertices = np.array([[0,0],[1,0],[1,1],[0,1]])
 segments = np.array([[0, 1], [1, 2], [2, 3], [3, 0]])
 segment_markers = np.array([1, 2, 3, 4])
-mesh2D = Mesh(vertices = vertices, segments = segments, segment_markers = segment_markers, options = 'pqa0.01')
+mesh2D = Mesh(vertices = vertices, segments = segments, segment_markers = segment_markers, options = 'pqa0.001')
 
 # Finite element space of degree 1
 femspace2D = FEMSpace(mesh2D, degree = 1)
@@ -77,17 +76,17 @@ problem2D = PoissonProblem(femspace = femspace2D, f = func2D, g = exact2D)
 # Solve the 2D Poisson problem using nodal lifting
 poisson_solution2D = problem2D.solve(lift = 'nodal')
 
-# Define Schwarz problem with 4 subdomains and overlap of 1 layer of elements
-schproblem2D = SchwarzProblem(femspace = femspace2D, n = 4, overlap = 1, f = func2D, g = exact2D)
+# Define Schwarz problem with 2 subdomains and overlap of 1 layer of elements
+schproblem2D = SchwarzProblem(femspace = femspace2D, f = func2D, g = exact2D, n = 2, overlap = 1)
 
 # Solve the problem using the Schwarz method with RAS and nodal lifting
-#schwarz_solution = schproblem2D.solve(lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-15)
+schwarz_solution = schproblem2D.solve(lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-3)
 
 # Solve the problem using the Schwarz method with RAS and nodal lifting, while tracking convergence history
-schwarz_solution = schproblem2D.solve(lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 150, tol = 1e-12, history = True, uh = poisson_solution2D, exact = exact2D)
+# schwarz_solution = schproblem2D.solve(lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-3, history = True, uh = poisson_solution2D, exact = exact2D)
 
 # Error analysis (compute L2 error between schwarz solution and exact solution, as well as between schwarz solution and fem solution)
-error2D = np.linalg.norm(schwarz_solution.flatten() - exact2D(femspace2D.mesh.vertices[:,0], femspace2D.mesh.vertices[:,1]))
+error2D = np.linalg.norm(schwarz_solution - exact2D(femspace2D.mesh.vertices[:,0], femspace2D.mesh.vertices[:,1]))
 error_fem2D = np.linalg.norm(poisson_solution2D - schwarz_solution)
 print("L2 error (schwarz vs exact):", error2D)
 print("L2 error (schwarz vs fem):", error_fem2D)
@@ -97,11 +96,6 @@ visualizer2D = visualize.SolutionVisualizer(femspace2D.mesh, schwarz_solution)
 visualizer2D.plot_convergence(error_history = schproblem2D.error_history, linewidth = 0.8, markersize = 3)
 
 # Alternative test examples
-# def exact2D(x, y):
-#     return np.sin(np.pi*x)*np.sin(np.pi*y)
-# def func2D(x, y):
-#     return 2*(np.pi**2)*np.sin(np.pi*x)*np.sin(np.pi*y)
-
 # def exact2D(x, y):
 #     return np.sin(np.pi*x)*np.sin(np.pi*y)
 # def func2D(x, y):

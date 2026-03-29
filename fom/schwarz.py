@@ -32,14 +32,22 @@ class SchwarzProblem():
         self.g = g
         self.n = n
         self.overlap = overlap
-        self.subdomains, self.ltog, self.gtol, self.maps, _ = self.femspace.mesh.decompose(n = n, overlap = overlap)
+        logger.info(f"[Schwarz] Decomposing mesh into {n} subdomains with overlap of {overlap} layer(s)...")  
+        self.subdomains, self.ltog, self.gtol, self.maps, _ = self.femspace.mesh.decompose(n = n, overlap = overlap) # speed up decompose!
+        logger.info(f"[Schwarz] Mesh decomposition completed. Number of subdomains: {len(self.subdomains)}")
         self.nspace = self.femspace.nnodes
         verts = self.femspace.mesh.vertices
-        boundary_nodes = self.femspace.mesh.boundary_nodes()
+        boundary_nodes = np.array(list(self.femspace.mesh.boundary_nodes()), dtype = np.int64)
+        boundary_nodes_coord = verts[boundary_nodes]
+        logger.info(f"[Schwarz] Evaluating Dirichlet boundary conditions at {len(boundary_nodes)} boundary nodes...")
         if self.femspace.dim == 1:
-            self.dirichlet = {j: g(verts[j]) for j in boundary_nodes}
+            values = g(boundary_nodes_coord)
+        elif self.femspace.dim == 2:
+            values = g(boundary_nodes_coord[:, 0], boundary_nodes_coord[:, 1])
         else:
-            self.dirichlet = {j: g(*verts[j]) for j in boundary_nodes}
+            raise ValueError("Unsupported dimension. Only 1D and 2D problems are supported.")
+        logger.info(f"[Schwarz] Dirichlet boundary conditions evaluated successfully.")
+        self.dirichlet = dict(zip(boundary_nodes, values))
         self.error_history = []
     
     def construct_dirichlet_bc(self, method: str, domainID: int, data: dict) -> dict:
@@ -129,7 +137,7 @@ class SchwarzProblem():
 
         Returns
         -------
-        global_solution : ndarray, shape (nspace, 1)
+        global_solution : ndarray, shape (nspace,)
             Global solution assembled from subdomain solutions.
 
         Raises
@@ -138,7 +146,7 @@ class SchwarzProblem():
             If `method` is not 'RAS' or 'AS'.
         """
         # Initialize global solution array
-        global_solution = np.zeros((self.nspace, 1))
+        global_solution = np.zeros(self.nspace)
         
         # Apply Dirichlet boundary conditions
         for idx, values in self.dirichlet.items():
@@ -224,7 +232,7 @@ class SchwarzProblem():
         idata = {}
         for subdomain in self.subdomains:
             global_indices = global_to_local[subdomain.domainID]
-            data = np.zeros((subdomain.nnodes(), 1))
+            data = np.zeros(subdomain.nnodes())
             for idx, values in self.dirichlet.items():
                 if idx in global_indices:
                     data[global_indices[idx]] = values
@@ -235,7 +243,7 @@ class SchwarzProblem():
               solver: LinearSolver = DirectSolver(), maxiter: int = 100, tol: float = 1e-3, criterion: Callable = boundary_criterion, 
               history: bool = False, norm: str = 'l2', uh: Optional[np.ndarray] = None, exact: Optional[Callable] = None) -> np.ndarray:
         """
-        Solve the Poisson problem using the Schwarz method with overlapping domain decomposition.
+        Solve the Poisson problem using the Overlapping Schwarz method.
 
         Parameters
         ----------
@@ -269,31 +277,35 @@ class SchwarzProblem():
         
         Returns
         -------
-        np.ndarray
-            The computed solution vector at the FEM nodes.
+        np.ndarray, shape (nspace,)
+             The computed global solution vector at the FEM nodes, assembled from the subdomain solutions using the specified Schwarz method and relaxation.
         """
         logger.info("="*80)
         logger.info("[Schwarz] Starting solver")
         logger.info(
-            f"Number of subdomains: {len(self.subdomains)} | "
+            f"dim: {self.femspace.dim}D | "
+            f"subdomains: {len(self.subdomains)} | "
             f"method: {method} | "
-            f"relaxation (omega): {omega:.2f} | "
-            f"max iterations: {maxiter} | "
-            f"tolerance: {tol:.2e}")
+            f"omega: {omega:.2f} | "
+            f"maxiter: {maxiter} | "
+            f"tol: {tol:.2e}")
         logger.info("="*80)
 
         error: float = float("inf")
-        initial_data = self.initial_data()
+        data = self.initial_data()
+
+        # Create Poisson problems for each subdomain (not solved yet, just initialized)
+        subproblems = {subdomain.domainID: PoissonProblem(femspace = FEMSpace(mesh = subdomain, domain = self.femspace.domain, space = self.femspace.space, degree = self.femspace.degree),
+            f = self.f, g = self.construct_dirichlet_bc(method = method, domainID = subdomain.domainID, data = data)) for subdomain in self.subdomains}
+
         for iter in range(maxiter):
             new_data = {}
             for subdomain in self.subdomains:
                 domainid = subdomain.domainID
-                dirichlet_bc = self.construct_dirichlet_bc(method = method, domainID = domainid, data = initial_data)
-                subdomain_poisson = PoissonProblem(femspace = FEMSpace(mesh = subdomain, domain = self.femspace.domain, space = self.femspace.space, degree = self.femspace.degree),
-                    f = self.f, g = dirichlet_bc)
-                new_data[domainid] = subdomain_poisson.solve(lift = lift, solver = solver)
+                dirichlet_bc = self.construct_dirichlet_bc(method = method, domainID = domainid, data = data) if iter > 0 else None
+                new_data[domainid] = subproblems[domainid].solve(lift = lift, solver = solver, g_new = dirichlet_bc)
 
-            error = criterion(initial_data, new_data)
+            error = criterion(data, new_data)
             logger.info(f"[Schwarz] Iteration {iter + 1}: error = {error:.6e}")
 
             if error < tol:
@@ -302,19 +314,21 @@ class SchwarzProblem():
                 break
             else:
                 if omega == 1.0:
-                    initial_data = new_data
+                    data = new_data
                 else:
-                    for i in initial_data:
-                        initial_data[i] = (1 - omega) * initial_data[i] + omega * new_data[i]
+                    for i in data:
+                        data[i] = (1 - omega) * data[i] + omega * new_data[i]
 
             if history: # store error history
-                schwarz_sol = self.combine(method = method, data = initial_data)
+                schwarz_sol = self.combine(method = method, data = data)
                 est = ErrorNorms(femspace = self.femspace, u1 = schwarz_sol, u2 = uh, u_exact = exact)
-                self.error_history.append(est.compute(norm))
+                error_norm = est.compute(norm)
+                logger.info(f"[Schwarz] Iteration {iter + 1}: error norm ({norm}) = {error_norm:.6e}")
+                self.error_history.append(error_norm)
         else:
             logger.warning(f"[Schwarz] Reached max iterations ({maxiter}) with error = {error:.6e}")
         
         logger.info("[Schwarz] Solver finished successfully")
         logger.info("="*80)
 
-        return self.combine(method = method, data = initial_data)
+        return self.combine(method = method, data = data)

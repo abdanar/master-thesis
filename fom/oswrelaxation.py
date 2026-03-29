@@ -8,10 +8,10 @@ from utils.errornorms import ErrorNorms
 
 logger = setup_logger(__name__, level = 'info')
 
-class OWRProblem():
+class OSWRProblem():
     def __init__(self, femspace: FEMSpace, t0: float, T: float, f: Callable, g: Callable, h: Callable, n: int, overlap: int):
         """
-        Initialize an Overlapping Waveform Relaxation problem for solving the heat equation using Schwarz domain decomposition methods.
+        Initialize an Overlapping Schwarz Waveform Relaxation (OSWR) problem for solving the heat equation.
 
         Parameters
         ----------
@@ -38,19 +38,25 @@ class OWRProblem():
         self.T = T
         self.f = f
         self.g = g
+        self.h = h
         self.n = n
         self.overlap = overlap
+        logger.info(f"[Schwarz Waveform Relaxation] Decomposing mesh into {n} subdomains with overlap of {overlap} layers...")
         self.subdomains, self.ltog, self.gtol, self.maps, _ = self.femspace.mesh.decompose(n = n, overlap = overlap)
+        logger.info(f"[Schwarz Waveform Relaxation] Mesh decomposition completed. Number of subdomains: {len(self.subdomains)}")
         self.nspace = self.femspace.nnodes
         verts = self.femspace.mesh.vertices
         boundary_nodes = self.femspace.mesh.boundary_nodes()
+        logger.info(f"[Schwarz Waveform Relaxation] Evaluating Dirichlet boundary functions at {len(boundary_nodes)} boundary nodes and initial condition at {self.nspace} nodes...")
+        # `dirichlet_func` can be optimized by using vectorized evaluation of g at all boundary nodes and time steps, rather than calling g for each node and time step separately.
         if self.femspace.dim == 1:
             self.dirichlet_func = lambda t: {j: self.g(verts[j], t) for j in boundary_nodes}
-            self.h = h(verts)
+            self.icond = self.h(verts)
         else:
             self.dirichlet_func = lambda t: {j: self.g(*verts[j], t) for j in boundary_nodes}
-            self.h = h(verts[:,0], verts[:,1])
-        self.error_history = []
+            self.icond = self.h(verts[:,0], verts[:,1])
+        logger.info(f"[Schwarz Waveform Relaxation] Dirichlet boundary functions and initial condition evaluated successfully.")
+        self.error_history = [] # also possible to store subdomain-wise error history for more detailed analysis of convergence behavior on each subdomain and at the overlaps, which can provide insights into how the errors evolve in different regions of the domain during the Schwarz iterations.
 
     def construct_dirichlet_bc(self, gdirichlet: dict, method: str, domainID: int, data: dict) -> dict:
         """
@@ -77,36 +83,43 @@ class OWRProblem():
             and values are arrays of shape `(local_dofs, ntime)` representing the local solution 
             for each subdomain.
 
+        Note to user
+        ------------
+        One could include the following line
+            dirichlet_bc[dindex][0] = self.icond[local_to_global[dindex]]
+        in the code below to explicitly set the initial condition at t0 for the boundary nodes of each subdomain, 
+        which can help ensure that the initial condition is correctly enforced at the boundaries of the subdomains. 
+        However, since the local solutions in `data` are initialized with the initial condition at t0, and 
+        the Dirichlet values from `gdirichlet` also include the initial condition at t0, the initial condition should 
+        already be correctly applied to the boundary nodes through the existing logic. Therefore, adding this line may 
+        be redundant, but it can serve as an additional safeguard to ensure that the initial condition is properly 
+        enforced at the boundaries of the subdomains.
+        
         Returns
         -------
         dirichlet_bc : dict
             A dictionary mapping local boundary node indices of `domainID` to their 
-            Dirichlet boundary values at all time steps.
+            Dirichlet boundary values at all time steps, including initial condition at t0. 
+            The keys are local node indices within the subdomain, and the values are 
+            arrays of shape `(ntime,)` representing the Dirichlet values at each time step for those nodes.
         """ 
-        # The dictionary that contains arrays for local dof to global dof mappings for each subdomains with keys to be domainID
-        local_to_global = self.ltog[domainID]
         dirichlet_bc = {}
+        local_to_global = self.ltog[domainID]
         for dindex, dlist in self.maps[domainID].items():
             share = len(dlist) # number of subdomains that shares dindex node
-            # Check if any entry uses Dirichlet value
-            dirichlet_entry = next(((i, j) for (i, j) in dlist if i == 0), None)
-            if dirichlet_entry is not None:
-                # If any i==0, assign Dirichlet value directly
+            dirichlet_entry = next(((i, j) for (i, j) in dlist if i == 0), None) # Check if any entry uses Dirichlet value
+            if dirichlet_entry is not None: # If any entry corresponds to subdomain 0 (the original global domain), use the Dirichlet value from gdirichlet directly for this node, regardless of the method. This ensures that the boundary conditions are correctly enforced at the global level, while the contributions from the subdomains are used for the interior nodes and overlaps.
                 _, j = dirichlet_entry
                 dirichlet_bc[dindex] = gdirichlet[j]
-            elif share > 1:
-                # Average over all subdomains sharing this node
+            elif share > 1: # If multiple subdomains share this node, compute the value based on the method (AS or RAS)
                 val = sum(data[i][j, :] for (i, j) in dlist) 
                 if method == 'AS':
                     dirichlet_bc[dindex] = val
-                    dirichlet_bc[dindex][0] = self.icond[local_to_global[dindex]]
                 elif method == 'RAS':
                     dirichlet_bc[dindex] = val/share
-                    dirichlet_bc[dindex][0] = self.icond[local_to_global[dindex]]
                 else:
                     raise ValueError(f"Invalid method '{method}'. Must be 'RAS' or 'AS'.")
-            else:
-                # Only one subdomain, take its value
+            else: # If only one subdomain shares this node, use its value directly
                 i, j = dlist[0]
                 dirichlet_bc[dindex] = data[i][j, :]
         return dirichlet_bc
@@ -129,7 +142,7 @@ class OWRProblem():
         """
         return self.icond[self.ltog[domainID]]
     
-    def combine(self, method: str, data: dict) -> np.ndarray:
+    def combine(self, gdirichlet: dict, ntime: int, method: str, data: dict) -> np.ndarray:
         """
         Assemble a global solution from subdomain solutions.
 
@@ -155,6 +168,12 @@ class OWRProblem():
         
         Parameters
         ----------
+        gdirichlet : dict
+            The dictionary mapping global node indices to the corresponding Dirichlet values 
+            at all time steps, i.e., {global_node_index: [value_at_t0, value_at_t1, ...]}. 
+        ntime : int
+            Total number of time steps, including the initial condition at t0, so the time 
+            points are t0, t1, ..., t_{ntime-1} with t_{ntime-1} = T.
         method : str
             The Schwarz method to use for combining subdomain solutions ('RAS' or 'AS').
         data : dict
@@ -173,61 +192,40 @@ class OWRProblem():
             If `method` is not 'RAS' or 'AS'.
         """
         # Initialize the global solution array of shape (nspace, ntime).
-        # Each column corresponds to the solution at a specific time step: global_solution[:, i] = u(x, t_i),
-        # with the first column representing the initial condition at t0.
-        global_solution = np.zeros((self.nspace, self.ntime))
+        global_solution = np.zeros((self.nspace, ntime))
 
         # Apply Dirichlet boundary conditions
-        for idx, values in self.dirichlet.items():
+        for idx, values in gdirichlet.items():
             global_solution[idx, :] = values
 
         # The dictionary that contains arrays for local dof to global dof mappings for each subdomains with keys to be domainID
         local_to_global = self.ltog
 
+        # Assemble global solution from subdomain solutions based on the chosen method
         if method == 'RAS':
             count = np.zeros(self.nspace)  # counts how many subdomains contribute to each global DOF
             for subdomain in self.subdomains:
                 i = subdomain.domainID
-                bdindices = subdomain.boundary_vertices()
+                bdindices = subdomain.boundary_nodes()
                 for local_index, global_index in enumerate(local_to_global[i]):
                     if local_index not in bdindices:
-                        global_solution[global_index, :] += data[i][local_index, :] # notice that if you remove +, then you will get perfect plot, but for AS, local solutions should be plotted
+                        global_solution[global_index, :] += data[i][local_index, :]
                         count[global_index] += 1
-
             for ix in range(self.nspace):
                 if count[ix] > 0:
                     global_solution[ix, :] /= count[ix]
-
-            # for below construct_dirichlet_bc function should be changed accordingly
-            # seen = set()
-            # for i in range(1, self.n + 1):
-            #     for local_index, global_index in enumerate(local_to_global[i]):
-            #         if global_index not in seen:
-            #             global_solution[global_index, :] = data[i][local_index, :]
-            #             seen.add(global_index)
         elif method == 'AS':
             for subdomain in self.subdomains:
                 i = subdomain.domainID
-                bdindices = subdomain.boundary_vertices()
+                bdindices = subdomain.boundary_nodes()
                 for local_index, global_index in enumerate(local_to_global[i]):
                     if local_index not in bdindices:
-                        global_solution[global_index, :] += data[i][local_index, :] # notice that if you remove +, then you will get perfect plot, but for AS, local solutions should be plotted
-
-            # previously
-            # count = np.zeros(self.nspace)  # counts how many subdomains contribute to each global DOF
-            # for i in range(1, self.n + 1):
-            #     for local_index, global_index in enumerate(local_to_global[i]):
-            #         global_solution[global_index, :] += data[i][local_index, :]
-            #         count[global_index] += 1
-            # # divide by number of contributions to average overlaps
-            # for idx in range(self.nspace):
-            #     if count[idx] > 0:
-            #         global_solution[idx, :] /= count[idx]
+                        global_solution[global_index, :] += data[i][local_index, :] # sum contributions from all subdomains, to have perfect solution on overlaps remove + sign
         else:
             raise ValueError(f"Invalid method '{method}'. Must be 'RAS' or 'AS'.")
         
         # Apply initial conditions - initial condition is given considering the ordering of global solution
-        global_solution[:, 0] = self.initial 
+        global_solution[:, 0] = self.icond
 
         return global_solution
     
@@ -262,7 +260,7 @@ class OWRProblem():
                 max_diff = diff
         return max_diff
     
-    def initial_data(self) -> dict:
+    def initial_data(self, gdirichlet: dict, ntime: int) -> dict:
         """
         Initialize the local solution data for each subdomain.
 
@@ -272,6 +270,12 @@ class OWRProblem():
           Dirichlet values from `self.g` are applied to the corresponding indices.
         - If `self.g` is a function, the local solution arrays are initialized to zero, and the 
           Dirichlet values are evaluated at the boundary nodes of each subdomain and applied accordingly.     
+
+        Parameters
+        ----------
+        gdirichlet : dict
+            The dictionary mapping global node indices to the corresponding Dirichlet values 
+            at all time steps, i.e., {global_node_index: [value_at_t0, value_at_t1, ...]}.
 
         Returns
         -------
@@ -285,23 +289,28 @@ class OWRProblem():
         idata = {}
         for subdomain in self.subdomains:
             global_indices = global_to_local[subdomain.domainID]
-            data = np.zeros((subdomain.nnodes(), 1))
-            for idx, values in self.dirichlet.items():
+            data = np.zeros((subdomain.nnodes(), ntime))
+            for idx, values in gdirichlet.items():
                 if idx in global_indices:
                     data[global_indices[idx]] = values
             idata[subdomain.domainID] = data
         return idata
 
-    def solve(self, ntime: int, tstepper: str = 'Theta', theta: float = 0.5, lift: str = 'nodal', method: str = 'RAS', omega: float = 1.0, 
+    def solve(self, ntime: int, theta: float = 0.5, lift: str = 'nodal', method: str = 'RAS', omega: float = 1.0, 
               solver: LinearSolver = DirectSolver(), maxiter: int = 100, tol: float = 1e-3, criterion: Callable = boundary_criterion,
               history: bool = False, norm: str = 'l2', uh: Optional[np.ndarray] = None, exact: Optional[Callable] = None) -> np.ndarray:
         """
-        Solve the Poisson problem using the Schwarz method with overlapping domain decomposition.
+        Solve the Heat problem using the Overlapping Schwarz Waveform Relaxation (OSWR) method.
 
         Parameters
         ----------
+        ntime : int
+            Total number of time steps, including the initial condition at t0, so the time points are t0, t1, ..., t_{ntime-1} with t_{ntime-1} = T.
+        theta : float, default = 0.5
+            Parameter for the theta time-stepping scheme. It determines the weighting between explicit and implicit contributions.
         lift : str
-            Type of lifting function used to solve the local problems. Options include 'harmonic' for harmonic lifting and 'nodal' for nodal lifting.
+            Type of lifting function used to solve the local problems. 
+            Available options are 'nodal' for nodal lifting, 'harmonic' for harmonic lifting and 'parabolic' for parabolic lifting. Default is 'nodal'.
         method : str, default = 'RAS'
             Schwarz method, either 'RAS' (Restricted Additive Schwarz) or 'AS' (Additive Schwarz).
         omega : float, optional
@@ -326,57 +335,68 @@ class OWRProblem():
             The finite element solution obtained from solving the global problem on the full mesh. 
             Used for error analysis if `history` is True.
         exact : Callable, optional
-            The exact solution function for the Poisson problem. Used for error analysis if `history` is True.
+            The exact solution function for the Heat problem. Used for error analysis if `history` is True.
         
         Returns
         -------
-        np.ndarray
-            The computed solution vector at the FEM nodes.
+        np.ndarray, shape (nspace, ntime)
+            The computed global solution at the FEM nodes for all time steps, assembled from the subdomain solutions 
+            using the specified Schwarz method and relaxation. Each column corresponds to the solution at a specific time step.
         """
-        # `ntime`` is the total number of time steps, including the initial condition at t0, so the time points are t0, t1, ..., t_{ntime-1} with t_{ntime-1} = T
+        logger.info("="*80)
+        logger.info("[Schwarz Waveform Relaxation] Starting solver")
+        logger.info(
+            f"dim: {self.femspace.dim}D | "
+            f"subdomains: {len(self.subdomains)} | "
+            f"method: {method} | "
+            f"omega: {omega:.2f} | "
+            f"maxiter: {maxiter} | "
+            f"tol: {tol:.2e}")
+        logger.info("="*80)
+
+        # Precompute Dirichlet boundary values for all time steps at the global level, which can be reused across iterations and subdomains.
         dirichlet = self.dirichlet_func(np.linspace(self.t0, self.T, ntime)) 
-
-
-        logger.info("="*80)
-        logger.info("[Waveform Relaxation] Starting solver")
-        logger.info(f"Number of subdomains: {len(self.subdomains)} | max iterations: {maxiter} | tolerance: {tol:.2e}")
-        logger.info("="*80)
 
         error: float = float("inf")
 
-        initial_data = self.initial_data()
+        # Initialize local solution data for each subdomain, which will be updated iteratively.
+        data = self.initial_data(ntime = ntime, gdirichlet = dirichlet)
+
+        # Create Heat problems for each subdomain
+        subproblems = {subdomain.domainID: HeatProblem(femspace = FEMSpace(mesh = subdomain, domain = self.femspace.domain, space = self.femspace.space, degree = self.femspace.degree),
+            t0 = self.t0, T = self.T, f = self.f, g = self.construct_dirichlet_bc(gdirichlet = dirichlet, method = method, domainID = subdomain.domainID, data = data), h = self.h) for subdomain in self.subdomains} 
 
         for iter in range(maxiter):
             new_data = {}
             for subdomain in self.subdomains:
                 domainid = subdomain.domainID
-                dirichlet_bc = self.construct_dirichlet_bc(domainID = domainid, data = initial_data)
-                subdomain_heat = HeatProblem(femspace = FEMSpace(mesh = subdomain, domain = self.femspace.domain, space = self.femspace.space, degree = self.femspace.degree),
-                    t0 = self.t0, T = self.T, f = self.f, g = dirichlet_bc, h = self.h)
-                new_data[domainid] = subdomain_heat.solve(ntime = ntime, tstepper = tstepper, theta = theta, lift = lift, solver = solver)
+                dirichlet_bc = self.construct_dirichlet_bc(gdirichlet = dirichlet, method = method, domainID = domainid, data = data) if iter > 0 else None
+                new_data[domainid] = subproblems[domainid].solve(ntime = ntime, theta = theta, lift = lift, solver = solver, g_new = dirichlet_bc)
 
-            error = criterion(initial_data, new_data)
-
-            logger.info(f"[Waveform Relaxation] Iteration {iter + 1}: error = {error:.6e}")
+            error = criterion(data, new_data)
+            logger.info(f"[Schwarz Waveform Relaxation] Iteration {iter + 1}: error = {error:.6e}")
 
             if error < tol:
-                logger.info(f"[Waveform Relaxation] Converged after {iter + 1} iterations with error = {error:.6e}")
+                logger.info(f"[Schwarz Waveform Relaxation] Converged after {iter + 1} iterations with error = {error:.6e}")
                 logger.info("="*80)
                 break
             else:
                 if omega == 1.0:
-                    initial_data = new_data
+                    data = new_data
                 else:
-                    for i in initial_data:
-                        initial_data[i] = (1 - omega) * initial_data[i] + omega * new_data[i]
+                    for i in data:
+                        data[i] = (1 - omega) * data[i] + omega * new_data[i]
+
             if history: # store error history
-                schwarz_sol = self.combine(method = method, data = initial_data)
-                est = ErrorNorms(femspace = self.femspace, u1 = schwarz_sol, u2 = uh, u_exact = exact)
-                self.error_history.append(est.compute(norm))
+                oswr_sol = self.combine(gdirichlet = dirichlet, ntime = ntime, method = method, data = data)
+                est = ErrorNorms(femspace = self.femspace, u1 = oswr_sol, u2 = uh, u_exact = exact, time = np.linspace(self.t0, self.T, ntime))
+                error_norm = est.compute(norm)
+                logger.info(f"[Schwarz Waveform Relaxation] Iteration {iter + 1}: error norm ({norm}) = {error_norm:.6e}")
+                self.error_history.append(error_norm)
         else:
-            logger.warning(f"[Waveform Relaxation] Reached max iterations ({maxiter}) with error = {error:.6e}")
+            logger.warning(f"[Schwarz Waveform Relaxation] Reached max iterations ({maxiter}) with error = {error:.6e}")
         
-        logger.info("[Waveform Relaxation] Solver finished successfully")
+        logger.info("[Schwarz Waveform Relaxation] Solver finished successfully")
         logger.info("="*80)
 
-        return self.combine(initial_data)
+        return self.combine(gdirichlet = dirichlet, ntime = ntime, method = method, data = data)

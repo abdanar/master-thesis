@@ -7,7 +7,7 @@ from fem.femspace import FEMSpace
 from fem.assembler import Assembler
 from fem.linearsolver import *
 import utils.logger as log 
-from typing import Callable
+from typing import Callable, Optional
 
 logger = log.setup_logger(__name__, level = 'info')
 
@@ -48,17 +48,24 @@ class HeatProblem:
         self.T = T
         self.f = f
         self.g = g
+        self.h = h
         self.dim = femspace.dim
-        verts = self.femspace.mesh.vertices
+
+        # Assemble the global mass and stiffness matrices for the heat equation
         self.assembler = Assembler(self.femspace)
         self.mass_matrix, self.stiffness_matrix = self._assemble_space()
+        
+        # Evaluate the initial condition at the FEM nodes
+        verts = self.femspace.mesh.vertices
         if self.dim == 1:
             self.F = lambda t: self.assembler.global_load_vector(lambda x: self.f(x, t))
-            self.h = h(verts) # shape (n_vertices,)
-        else:
+            self.icond = self.h(verts) # shape (n_vertices,)
+        elif self.dim == 2:
             self.F = lambda t: self.assembler.global_load_vector(lambda x, y: self.f(x, y, t))
-            self.h = h(verts[:,0], verts[:,1]) # shape (n_vertices,)
-            
+            self.icond = self.h(verts[:,0], verts[:,1]) # shape (n_vertices,)
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}") 
+        
     def _assemble_space(self) -> tuple[coo_array, coo_array]:
         """
         Assemble the global mass and stiffness matrices for the heat equation.
@@ -82,7 +89,7 @@ class HeatProblem:
         stiffness = self.assembler.global_stiffness_matrix(diffusion = diffusion)
         return mass, stiffness
 
-    def solve_nodal(self, ntime: int, theta: float = 0.5, solver: LinearSolver = DirectSolver(), **kwargs) -> np.ndarray:
+    def solve_nodal(self, ntime: int, theta: float = 0.5, solver: LinearSolver = DirectSolver(), g_new: Optional[Callable | dict] = None, **kwargs) -> np.ndarray:
 
         # Total number of time steps
         nsteps = ntime - 1
@@ -94,10 +101,10 @@ class HeatProblem:
         dt = (self.T - self.t0) / nsteps
 
         # Pre-allocate solution array: columns are time steps
-        solution = np.zeros((self.mass_matrix.shape[0], ntime))
+        solution = np.zeros((self.mass_matrix.shape[0], ntime)) # type: ignore
 
         # Initial solution
-        solution[:, 0] = self.h
+        solution[:, 0] = self.icond
 
         logger.debug(f"Using θ-method time-stepping with θ = {theta} | Starting time integration | nsteps = {nsteps}, dt = {dt:.3e}")
 
@@ -106,7 +113,7 @@ class HeatProblem:
         rhs_const = self.mass_matrix - (1 - theta)*dt*self.stiffness_matrix
 
         # Apply boundary conditions to the system matrix (for nodal lifting, we will modify the system at each time step)
-        boundary = DirichletBC(femspace = self.femspace, g = self.g, time_steps = time_steps)
+        boundary = DirichletBC(femspace = self.femspace, g = self.g if g_new is None else g_new, time_steps = time_steps)
 
         # Apply boundary conditions to the constant part of the system matrix (this will modify the matrix structure for nodal lifting)
         lhs, _ = boundary.apply(K = lhs_const, modify_K = True)
@@ -114,7 +121,7 @@ class HeatProblem:
         # Time-stepping loop with tqdm
         step = 0
         t = self.t0
-        u_initial = self.h[:, None]  # shape (n_vertices, 1)
+        u_initial = self.icond # shape (n_vertices,)
         load_initial = self.F(t)
         with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, disable = not sys.stdout.isatty()) as pbar:
             for step in pbar:
@@ -124,13 +131,12 @@ class HeatProblem:
                 rhs = rhs_const @ u_initial + dt*(theta*load_vector + (1 - theta)*load_initial)
                 _, rhs = boundary.apply(K = lhs_const, rhs = rhs, time_step = step, modify_K = False)
                 u = solver.solve(lhs, rhs, **kwargs)
-                solution[:, step + 1] = u.ravel()
+                solution[:, step + 1] = u # shape (n_vertices,)
                 u_initial = u
                 load_initial = load_vector
-                step += 1
         return solution
 
-    def solve(self, ntime: int, lift: str = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), **kwargs) -> np.ndarray:
+    def solve(self, ntime: int, lift: str = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), g_new: Optional[Callable | dict] = None,**kwargs) -> np.ndarray:
         """
         Solves the heat equation using the specified time-stepping method and boundary condition handling.
 
@@ -153,6 +159,12 @@ class HeatProblem:
         solver : LinearSolver
             Linear solver to use for solving the linear system. Must be an instance of a class that 
             inherits from `LinearSolver`. Default is `DirectSolver()`.
+        g_new : Callable or dict, optional
+            New Dirichlet boundary condition function or dictionary to update the boundary handler before solving.
+            - If it is a function, it should be defined as g_new(x) for 1D or g_new(x, y) for 2D problems.
+            - If it is a dictionary, the keys should be global node indices corresponding to the boundary nodes, 
+              and the values should be the new Dirichlet values at those nodes. For example: {0: 0.0, 5: 1.0, ...}
+            If `g_new` is None, the existing boundary conditions defined by `self.g` will be used without modification.
         **kwargs
             Additional keyword arguments to pass to the boundary condition application method 
             (e.g., solver parameters for iterative solvers).
@@ -163,11 +175,11 @@ class HeatProblem:
             The computed solution vector at the FEM nodes.
         """
         if lift == 'nodal':
-            solution = self.solve_nodal(ntime = ntime, theta = theta, solver = solver, **kwargs)
+            solution = self.solve_nodal(ntime = ntime, theta = theta, solver = solver, g_new = g_new, **kwargs)
         # elif lift == 'harmonic':
-        #     solution = self.solve_harmonic(ntime = ntime, theta = theta, solver = solver, **kwargs)
+        #     solution = self.solve_harmonic(ntime = ntime, theta = theta, solver = solver, g_new = g_new, **kwargs)
         # elif lift == 'parabolic':
-        #     solution = self.solve_parabolic(ntime = ntime, theta = theta, solver = solver, **kwargs)
+        #     solution = self.solve_parabolic(ntime = ntime, theta = theta, solver = solver, g_new = g_new, **kwargs)
         else:
             raise ValueError(f"Unsupported lift method: {lift}")
         return solution

@@ -3,6 +3,7 @@ import itertools as it
 import numpy as np
 import pymetis
 import triangle as tr
+import time
 from utils.logger import setup_logger
 
 # ---------------- Mesh Class for Finite Element Method (FEM) -------------------
@@ -27,13 +28,13 @@ from utils.logger import setup_logger
 logger = setup_logger(__name__, level = 'info')
 
 class Mesh:
-    def __init__(self, vertices: np.ndarray, elements = None, segments = None, segment_markers = None, holes = None, domainID: int = 0, dim: int = 2, options: str = 'qa0.1'):
+    def __init__(self, vertices, elements = None, segments = None, segment_markers = None, holes = None, domainID: int = 0, dim: int = 2, options: str = 'qa0.1'):
         """
         Initialize a Mesh object for 1D or 2D domains.
 
         Parameters
         ----------
-        vertices : np.ndarray
+        vertices : array-like
             Coordinates of the vertices. In 1D, shape (n,), in 2D, shape (n, 2).
         elements : array-like, optional
             Element connectivity. If provided, triangulation is skipped.
@@ -49,7 +50,30 @@ class Mesh:
             Dimension of the mesh (1 or 2).
         options : str, default='qa0.1'
             Options to control 2D triangulation (see Triangle API)
-        
+
+        Attributes
+        ----------
+        degree : int
+            Polynomial degree of the finite element space (default is 1, can be upgraded).
+        dim : int
+            Dimension of the mesh (1 or 2).
+        domainID : int
+            Identifier for the domain (0 for whole domain, positive integers for subdomains).
+        options : str
+            Options for 2D triangulation (passed to `Triangle` library).
+        holes : array-like
+            Holes in the 2D domain (passed to `Triangle` library).
+        vertices : np.ndarray
+            Coordinates of the mesh vertices. Shape (n_vertices,) for 1D, shape (n_vertices, 2) for 2D.
+        elements : np.ndarray
+            Element connectivity array. Shape (n_elements, nodes_per_element).
+        segments : np.ndarray
+            Boundary segments for 2D triangulation. Shape (n_segments, 2). For 1D, this is just the boundary nodes.
+        segment_markers : np.ndarray
+            Markers for the boundary segments. Shape (n_segments,). For 1D, default markers are 1 for left boundary and 2 for right boundary.
+        dofs : np.ndarray
+            Global node indices used by the FEM discretization. Initially corresponds to vertex indices, but can include edge/interior nodes after upgrade.
+
         Notes
         -----
         - By default, the mesh represents linear (degree 1) elements. If the mesh is upgraded
@@ -63,13 +87,13 @@ class Mesh:
             See the Triangle API for available options: https://rufat.be/triangle/API.html
         - `domainID=0` is reserved for the whole domain; subdomains should use positive integers.
         """
-        self.degree = 1 # default polynomial degree (can be upgraded later by FEMSpace)
-        self.dim = dim # dimension of the mesh (1D or 2D)
-        self.domainID = domainID # identifier for the domain (0 for whole domain, positive integers for subdomains)
+        self.degree = 1
+        self.dim = dim
+        self.domainID = domainID
         self.options = options
-        self.vertices = np.asarray(vertices)
         self.holes = holes
         if dim == 1:
+            self.vertices = np.asarray(vertices).squeeze()
             if elements is None:
                 n = len(self.vertices)
                 self.elements = np.column_stack((np.arange(n-1), np.arange(1, n)))
@@ -78,8 +102,9 @@ class Mesh:
             self.segments = np.sort(np.fromiter(self.boundary_nodes(), dtype=int)) # in 1D, segments are just the boundary nodes
             self.segment_markers = np.array([1, 2], dtype = int) # default segment markers for 1D: 1 for left boundary, 2 for right boundary
         elif dim == 2:
+            self.vertices = np.asarray(vertices)
             if elements is None:
-                data = {"vertices": vertices}
+                data = {"vertices": self.vertices}
                 if segments is not None:
                     data["segments"] = segments
                 if segment_markers is not None:

@@ -27,6 +27,8 @@ class ErrorNorms:
         grad_u_exact : Callable, optional
             Gradient of the exact solution, required for H¹-based norms.
             Should return a vector at given coordinates.
+        time : np.ndarray, optional
+            Time points corresponding to the solution snapshots, required for time-dependent norms.
         mode : {'auto', 'exact', 'fem'}, default='auto'
             Comparison mode:
                 - 'auto': uses u2 if provided, else u_exact
@@ -66,7 +68,7 @@ class ErrorNorms:
         """Universal difference function u1 - u2 or u1 - u_exact, or u1 alone."""
         u1_x = self.femspace.evaluate_solution_on_element(self.u1[:, t_index], elem_index, x_phys)
         if self.mode == 'fem':
-            u2_x = self.femspace.evaluate_solution_on_element(self.u2[:, t_index], elem_index, x_phys)
+            u2_x = self.femspace.evaluate_solution_on_element(self.u2[:, t_index], elem_index, x_phys) # type: ignore
             return u1_x - u2_x
         elif self.mode == 'exact':
             t = self.time[t_index] if self.time is not None else 0.0
@@ -80,7 +82,7 @@ class ErrorNorms:
         """Universal gradient difference: grad(u1) - grad(u2), grad(u1) - grad(u_exact), or grad(u1) alone."""
         grad_uh = self.femspace.evaluate_grad_solution_on_element(self.u1[:, t_index], elem_index, x_phys)
         if self.mode == 'fem':
-            grad_u2 = self.femspace.evaluate_grad_solution_on_element(self.u2[:, t_index], elem_index, x_phys)
+            grad_u2 = self.femspace.evaluate_grad_solution_on_element(self.u2[:, t_index], elem_index, x_phys) # type: ignore
             return grad_uh - grad_u2
         elif self.mode == 'exact':
             if self.grad_u_exact is None:

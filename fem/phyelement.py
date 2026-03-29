@@ -23,6 +23,18 @@ from fem.refelement import ReferenceElement
 #   - Evaluation of shape functions and their gradients at reference points
 # --------------------------------------------------------------------------
 
+# -------------------------- Optimization Notes ---------------------------------
+# The current implementation is straightforward and prioritizes clarity. 
+# Both 1D and 2D cases, as well as single and multiple point mappings, are handled 
+# in a unified way. However, this may introduce some overhead due to conditional 
+# checks and less efficient handling of multiple points in 2D. Therefore, the following optimizations could be considered:
+# 1. Separate methods for 1D and 2D mappings to avoid runtime checks
+# 2. Vectorized handling of multiple points in 2D to eliminate Python loops and leverage NumPy's optimized operations
+# 3. Caching the Jacobian and its inverse for each element to avoid redundant calculations during shape function evaluations
+# 4. Precomputing shape function values and gradients at quadrature points to speed up assembly processes
+# 5. Using more efficient data structures or libraries (e.g., Numba, Cython) for critical sections of the code
+# ------------------------------------------------------------------------------
+
 class PhysicalElement:
     def __init__(self, vertices: np.ndarray, ref_element: ReferenceElement):
         """

@@ -36,7 +36,7 @@ def h1D(x):
 problem1D = HeatProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D)
 
 # Solve the 1D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
-heat_solution1D = problem1D.solve(ntime = ntime, lift = 'nodal', theta = 0.5)
+heat_solution1D = problem1D.solve(ntime = ntime, lift = 'nodal', theta = 1)
 
 # Error analysis
 error1D = np.linalg.norm(heat_solution1D - exact1D(mesh1D.vertices[:, None], time_steps[None, :]), axis = 0)
@@ -77,7 +77,7 @@ def h2D(x, y):
 problem2D = HeatProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D)
 
 # Solve the 2D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
-heat_solution2D = problem2D.solve(ntime = ntime, lift = 'nodal', theta = 0.5)
+heat_solution2D = problem2D.solve(ntime = ntime, lift = 'nodal', theta = 1)
 
 # Error analysis
 error2D = np.linalg.norm(heat_solution2D - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_steps[None, :]), axis = 0)

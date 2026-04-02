@@ -2,7 +2,7 @@ import numpy as np
 from typing import Callable
 from fem.femspace import FEMSpace
 from fem.assembler import Assembler
-from fem.linearsolver import *
+from fem.linearsolver import LinearSolver, DirectSolver
 from fem.boundary import DirichletBC
 import utils.logger as log 
 from typing import Optional

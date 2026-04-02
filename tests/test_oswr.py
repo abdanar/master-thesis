@@ -6,7 +6,7 @@ from fom.oswrelaxation import OSWRProblem
 import visualization.visualize as visualize 
 
 # ----------------------------
-# 1D Example (Poisson problem)
+# 1D Example (Heat problem)
 # ----------------------------
 
 # Create a mesh - space mesh generation
@@ -60,7 +60,7 @@ visualizer1D = visualize.SolutionVisualizer(mesh1D, oswr_solution1D)
 visualizer1D.plot_convergence(error_history = oswrproblem1D.error_history, linewidth = 0.8, markersize = 3)
 
 # ----------------------------
-# 2D Example (Poisson problem)
+# 2D Example (Heat problem)
 # ----------------------------
 
 # Create a simple square mesh - space mesh generation

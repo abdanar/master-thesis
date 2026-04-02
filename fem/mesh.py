@@ -74,6 +74,10 @@ class Mesh:
         dofs : np.ndarray
             Global node indices used by the FEM discretization. Initially corresponds to vertex indices, but can include edge/interior nodes after upgrade.
 
+        Note to users
+        -------------
+        - You are expected to use sequential global node indices for the vertices, starting from 0. The `elements` and `segments` arrays should reference these vertex indices.
+
         Notes
         -----
         - By default, the mesh represents linear (degree 1) elements. If the mesh is upgraded
@@ -99,7 +103,7 @@ class Mesh:
                 self.elements = np.column_stack((np.arange(n-1), np.arange(1, n)))
             else:
                 self.elements = np.asarray(elements, dtype = int)
-            self.segments = np.sort(np.fromiter(self.boundary_nodes(), dtype=int)) # in 1D, segments are just the boundary nodes
+            self.segments = self.boundary_nodes() # in 1D, segments are just the boundary nodes
             self.segment_markers = np.array([1, 2], dtype = int) # default segment markers for 1D: 1 for left boundary, 2 for right boundary
         elif dim == 2:
             self.vertices = np.asarray(vertices)
@@ -131,8 +135,7 @@ class Mesh:
         """
         Return the total number of mesh nodes.
 
-        This counts all nodes used by the FEM discretization. If the mesh
-        has been upgraded, this also includes geometric vertices as well as
+        If the mesh has been upgraded, this also includes geometric vertices as well as
         edge and interior (element) nodes.
 
         Returns
@@ -141,6 +144,32 @@ class Mesh:
             Total number of mesh nodes.
         """
         return self.vertices.shape[0]
+
+    def nintnodes(self) -> int:
+        """
+        Return the total number of interior nodes in the mesh.
+
+        Interior nodes are those that are not on the boundary. 
+
+        Returns
+        -------
+        int
+            Number of interior nodes in the mesh.
+        """
+        return self.nnodes() - self.nbdnodes()
+
+    def nbdnodes(self) -> int:
+        """
+        Return the total number of boundary nodes in the mesh.
+
+        Boundary nodes are those that lie on the boundary of the domain. 
+
+        Returns
+        -------
+        int
+            Number of boundary nodes in the mesh.
+        """
+        return len(self.boundary_nodes())
 
     def nvertices(self) -> int:
         """
@@ -526,182 +555,175 @@ class Mesh:
                 adjacency[elem2].add(elem1)
         return adjacency
     
-    def boundary_edges(self) -> set:
+    def boundary_edges(self) -> np.ndarray:
         """
-        Return the set of boundary edges in the mesh.
+        Returns the boundary edges of the geometric mesh as an array.
 
-        A boundary edge is an edge that belongs to **only one element**. 
-        Interior edges, shared by two elements, are excluded. For higher-order
-        elements (degree > 1), subdivided edge segments along the geometric edge 
-        are considered in the detection.
+        A boundary edge is an edge that belongs to **only one element** of the original
+        geometric mesh. Edges shared by multiple elements are interior and excluded.
+        For higher-order elements, only the original geometric nodes are considered:
+        - 1D: first and last node of each interval
+        - 2D: first three nodes of each triangle
 
         Returns
         -------
-        bdedges : set of tuples
-            Set of edges that are on the boundary of the mesh.
-            - In 2D: each edge is represented as a tuple of vertex indices (i, j) with i < j.
-            - In 1D: edges are consecutive node pairs along the segment (not sorted).
+        np.ndarray, shape (nbdedges, 2)
+            Array of boundary edges. Each row represents an edge with its two node indices (i, j),
+            sorted such that i < j.
 
         Notes
         -----
-        - Uses `self.edge_to_element_map()` to determine edge ownership.
-        - For 1D meshes, a boundary edge corresponds to the endpoints of the mesh.
-        - For 2D meshes, these are edges shared by only one triangle (or element).
-        - For higher-order elements, all subdivided segments along the geometric
-          edge are included as boundary edges if the parent edge is a boundary edge.
+        - **1D meshes:** Boundary edges are those containing the endpoints of the mesh,
+        i.e., nodes that appear only once among the geometric intervals.
+        - **2D meshes:** Only the edges formed by the first three nodes of each triangle
+        are considered. Boundary edges are those that appear in exactly one triangle.
+        - This method ignores any higher-order nodes that may exist in the elements.
 
         Examples
         --------
-        Linear 1D mesh:
-        self.elements = [
-            [0, 1],  # interval 0
-            [1, 2],  # interval 1
-            [2, 3]   # interval 2
-        ]
-        boundary_edges() -> {(0,1), (2,3)}
+        **1D mesh:**
+            elements = np.array([[0, 1],
+                                [1, 2],
+                                [2, 3]])
+            boundary_edges() -> array([[0, 1],
+                                    [2, 3]])
 
-        Linear 2D mesh:
-        self.elements = [
-            [0, 1, 2],  # triangle 0
-            [2, 1, 3],  # triangle 1
-            [2, 3, 4]   # triangle 2
-        ]
-        boundary_edges() -> {(0,1), (0,2), (1,3), (2,4), (3,4)}
+        **2D mesh:**
+            elements = np.array([[0, 1, 2],
+                                [2, 1, 3],
+                                [2, 3, 4]])
+            boundary_edges() -> array([[0, 1],
+                                    [0, 2],
+                                    [1, 3],
+                                    [2, 4],
+                                    [3, 4]])
         """
-        bdedges = set()
         if self.dim == 1:
-            edges = set() # all edges
-            for interval in self.elements:
-                edges.update(self.edges(interval))
-            arr = np.array(list(edges)) # Convert set to NumPy array once
-            vals, counts = np.unique(arr, return_counts=True)
-            appears_once = vals[counts == 1]
-            positions = np.argwhere(np.isin(arr, appears_once))
-            return {tuple(arr[positions[0][0]]), tuple(arr[positions[1][0]])}
+            edges = self.elements[:, [0, -1]]
+            edges.sort(axis=1)  # ensure (min, max)
+            nodes, counts = np.unique(edges.ravel(), return_counts=True)
+            endpoints = nodes[counts == 1]
+            mask = np.isin(edges, endpoints).any(axis=1)
+            return edges[mask]
         elif self.dim == 2:
-            edge_to_element = self.edge_to_element_map()
-            for edge, elements in edge_to_element.items():
-                if len(elements) == 1:
-                    bdedges.add(edge)
-            return bdedges
+            tri_nodes = self.elements[:, :3]
+            edges = np.vstack([np.sort(tri_nodes[:, [0, 1]], axis=1),
+                               np.sort(tri_nodes[:, [1, 2]], axis=1),
+                               np.sort(tri_nodes[:, [2, 0]], axis=1)])
+            unique_edges, counts = np.unique(edges, axis = 0, return_counts = True)
+            return unique_edges[counts == 1]
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
 
-    def boundary_nodes(self) -> set[int]:
+    def interior_nodes(self) -> np.ndarray:
         """
-        Return the set of indices of nodes lying on the boundary of the mesh.
+        Returns the indices of all interior nodes in the mesh.
 
-        For 1D meshes, the boundary consists of the two endpoints of the domain.
-
-        For 2D meshes, the boundary nodes are defined as all nodes that belong 
-        to at least one boundary edge. This method first computes the boundary edges 
-        using `self.boundary_edges()` and then collects all unique node indices.
-
-        Returns
-        -------
-        bdnodes : set
-            Set of node indices located on the boundary of the mesh.
-
-        Example
-        -------
-        Suppose the mesh elements are:
-
-            self.elements = [
-                [0, 1, 2],  # triangle 0
-                [2, 1, 3],  # triangle 1
-                [2, 3, 4]   # triangle 2
-            ]
-
-        If the boundary edges are:
-
-            {(0,1), (0,2), (1,3), (2,4), (3,4)}
-
-        Then the boundary nodes returned by this method will be:
-
-            {0, 1, 2, 3, 4}
+        Interior nodes are those that do not lie on the boundary of the mesh.
 
         Notes
         -----
-        - In 1D, the returned set contains exactly two nodes, corresponding to
-          the endpoints of the mesh.
-        - In 2D, the returned set contains all nodes that appear in at least one
-          boundary edge.
-        - Uses `itertools.chain.from_iterable` to flatten all boundary edges into a
-        single sequence of node indices.
-        - The result is a set, so each node appears only once.
-        - Useful for applying boundary conditions, visualization, or identifying
-          mesh boundary nodes.
+        - For 1D meshes, interior nodes are those that appear in more than one interval (i.e., not endpoints).
+        - For 2D meshes, interior nodes are those that do not belong to any boundary edge. 
+          This method relies on `self.boundary_nodes()` to identify boundary nodes and 
+          then returns the complement set of nodes that are not on the boundary.
+        - The output is a **NumPy array** for direct use in FEM assembly, interior node indexing, or visualization.
+        - Always returns nodes in ascending order due to `np.flatnonzero` and the way the mask is constructed.
+        - The method used here assumes that nodes are indexed from 0 to `nnodes() - 1` and that `boundary_nodes()` returns a subset of these indices.
+
+        Returns
+        -------
+        intnodes : np.ndarray, shape (nintnodes,)
+            Array of interior node indices, sorted in ascending order.
+        """
+        mask = np.ones(self.nnodes(), dtype = bool)
+        mask[self.boundary_nodes()] = False
+        return np.flatnonzero(mask)
+
+    def boundary_nodes(self) -> np.ndarray:
+        """
+        Returns the indices of all nodes lying on the boundary of the mesh.
+
+        In 1D, the boundary consists of the **endpoints** of the mesh.  
+        In 2D, the boundary nodes are all nodes that belong to **at least one boundary edge**.
+
+        Returns
+        -------
+        bdnodes : np.ndarray, shape (nbdnodes,)
+            Array of boundary node indices, sorted in ascending order.
+
+        Notes
+        -----
+        - For 1D meshes, the endpoints are identified as the nodes that appear in 
+        exactly one interval.
+        - For 2D meshes, the method relies on `self.boundary_edges()` to find all 
+        edges on the boundary, then collects all unique nodes from these edges.
+        - The output is a **NumPy array** for direct use in FEM assembly, Dirichlet
+        boundary conditions, or visualization.
+        - Always returns nodes in ascending order due to `np.unique`.
+
+        Examples
+        --------
+        1D mesh:
+            self.elements = [
+                [0, 1],
+                [1, 2],
+                [2, 3]
+            ]
+            boundary_nodes() -> array([0, 3])
+
+        2D mesh:
+            self.elements = [
+                [0, 1, 2],
+                [2, 1, 3],
+                [2, 3, 4]
+            ]
+            boundary_edges() -> array([[0,1],[0,2],[1,3],[2,4],[3,4]])
+            boundary_nodes() -> array([0, 1, 2, 3, 4])
         """
         if self.dim == 1:
-            edges = set() # all edges
-            for interval in self.elements:
-                edges.update(self.edges(interval))
-            arr = np.array(list(edges)) # Convert set to NumPy array once
-            vals, counts = np.unique(arr, return_counts=True)
-            return set(vals[counts == 1])
+            arr = self.elements.ravel() # flatten all nodes from intervals
+            vals, counts = np.unique(arr, return_counts = True)  # find unique nodes and how often they appear
+            return vals[counts == 1] # nodes that appear only once → endpoints
         elif self.dim == 2:
             bdedges = self.boundary_edges()
-            return set(it.chain.from_iterable(bdedges))
+            return np.unique(bdedges.ravel())
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
     
     def boundary_nodes_coord(self) -> np.ndarray:
         """
-        Return the coordinates of all boundary nodes.
+        Returns the coordinates of all boundary nodes.
 
         Returns
         -------
         bdnodes : ndarray, shape (num_boundary_nodes, dim)
             Array of coordinates of boundary nodes.
         """
-        bdnodes = np.array(list(self.boundary_nodes()), dtype=int)       # indices of boundary nodes
-        return np.array(self.vertices[bdnodes])  # shape (num_boundary_nodes, dim)
+        return np.array(self.vertices[self.boundary_nodes()])  # shape (num_boundary_nodes, dim)
 
-    def boundary_elements(self) -> set:
+    def boundary_elements(self) -> np.ndarray:
         """
-        Return the set of elements that touch the boundary of the mesh.
+        Returns the elements that touch the boundary of the mesh.
 
         An element is considered a boundary element if at least one of its
-        nodes lies on the boundary. This method first computes the boundary
-        nodes using `self.boundary_nodes()` and then collects all elements
-        that share at least one of these nodes.
+        nodes lies on the boundary. Uses the geometric boundary nodes
+        from `self.boundary_nodes()`.
 
         Returns
         -------
-        bdelem : set of tuple of int
-            A set of elements that touch the boundary of the mesh.
-
-        Example
-        -------
-        Suppose the mesh elements are:
-
-            self.elements = [
-                [0, 1, 2],  # triangle 0
-                [2, 1, 3],  # triangle 1
-                [2, 3, 4]   # triangle 2
-            ]
-
-        If the boundary nodes are:
-
-            {0, 1, 2, 3, 4}
-
-        Then the boundary triangles returned by this method will be:
-
-            {(0, 1, 2), (2, 1, 3), (2, 3, 4)}
+        np.ndarray, shape (n_boundary_elements, n_nodes_per_element)
+            Array of elements (rows) that touch the boundary.
 
         Notes
         -----
-        - Uses set intersection (`&`) to check if an element shares any boundary vertices.
-        - Returns elements as tuples, preserving vertex indices.
-        - Useful for applying boundary conditions, visualization, or identifying
-          boundary regions in a mesh.
+        - Works for 1D and 2D meshes.
+        - Only considers geometric nodes; higher-order nodes are ignored.
+        - Each row corresponds to an element, preserving original vertex ordering.
         """
-        bdnodes = self.boundary_nodes()
-        bdelem = set()
-        for element in self.elements:
-            if set(element) & bdnodes:
-                bdelem.add(tuple(element))
-        return bdelem
+        bdnodes = self.boundary_nodes()  # np.ndarray of boundary nodes
+        mask = np.isin(self.elements, bdnodes).any(axis=1)
+        return self.elements[mask]
     
     def is_boundary_edge(self, edge: tuple) -> bool:
         """
@@ -739,7 +761,8 @@ class Mesh:
         bool
             True if the element is a boundary element, False otherwise.
         """
-        return bool(set(element) & self.boundary_nodes())
+        element = np.asarray(element)
+        return bool(np.isin(element, self.boundary_nodes()).any())
     
     def interval_decompose(self, n: int, overlap: int = 0):
         """
@@ -751,10 +774,10 @@ class Mesh:
 
         Parameters
         ----------
+        n : int
+            Number of subdomains to split the 1D grid into.
         overlap : int
             Number of additional points shared with each neighboring subdomain.
-        num_subdomains : int
-            Number of subdomains to create.
 
         Returns
         -------

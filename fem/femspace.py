@@ -68,6 +68,11 @@ class FEMSpace:
         self.dim = mesh.dim
         self.mesh = self.upgrade(mesh) if mesh.domainID == 0 and mesh.degree == 1 and degree > 1 else mesh # upgrade only if the mesh is the given whole domain
         self.nnodes = self.mesh.nnodes()
+        self.boundary_nodes = self.mesh.boundary_nodes()
+        self.nbdnodes = len(self.boundary_nodes)
+        mask = np.ones(self.nnodes, dtype = bool)
+        mask[self.boundary_nodes] = False
+        self.interior_nodes = np.flatnonzero(mask)
         
     def upgrade(self, mesh: Mesh) -> Mesh:
         """

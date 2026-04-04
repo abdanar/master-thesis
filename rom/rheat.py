@@ -59,7 +59,7 @@ class ReducedHeatProblem:
         else:
             raise ValueError("Unsupported type for boundary condition g.")
 
-    def solve_nodal(self, ntime: int, theta: float = 0.5, solver: LinearSolver = DirectSolver(), g_new: Optional[Callable | np.ndarray] = None, **kwargs):
+    def solve_nodal(self, ntime: int, theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, **kwargs):
 
         # Total number of time steps
         nsteps = ntime - 1
@@ -89,12 +89,18 @@ class ReducedHeatProblem:
         lhs_const_r = self.mass_matrix_II_r + theta*dt*self.stiffness_matrix_II_r
         rhs_const_r = self.mass_matrix_II_r - (1 - theta)*dt*self.stiffness_matrix_II_r
 
-        logger.info("Precomputing reduced load vectors for all time steps...")
+        # Precompute the load vectors for all time steps if reuse_load is True, otherwise compute them on the fly in the time-stepping loop
+        if reuse_load and hasattr(self, 'F_all_r') and self.F_all_r.shape[1] == ntime:
+            F_all_r = self.F_all_r
+            logger.info("Reusing previously computed reduced load vectors for all time steps...")
+        else:
+            logger.info("Computing reduced load vectors for all time steps...")
+            F_all_r = np.column_stack([self.load_vector_I_r(t) for t in time_steps])
 
-        # Precompute load vectors for all time steps for interior nodes
-        F_all_r = np.column_stack([self.load_vector_I_r(t) for t in time_steps]) # shape (n_interior, n_time)
+        if reuse_load:
+            self.F_all_r = F_all_r
 
-        logger.info("Reduced load vectors precomputed for all time steps | Precomputing boundary contributions for all time steps...")
+        logger.info("Computing boundary contributions for all time steps...")
 
         # Columns are psi_{n+1} - psi_n for n = 0, ..., nsteps-1
         delta_psi_np1 = self.dirichlet_values[:, 1:] - self.dirichlet_values[:, :-1] # shape (n_boundary, n_steps)
@@ -103,7 +109,7 @@ class ReducedHeatProblem:
         # Precompute boundary contributions for all steps (vectorized)
         R_all_r = dt*(theta*F_all_r[:, 1:] + (1-theta)*F_all_r[:, :-1]) - theta * self.mass_matrix_IB_r @ delta_psi_np1 - dt * theta * self.stiffness_matrix_IB_r @ self.dirichlet_values[:, 1:] - (1-theta) * self.mass_matrix_IB_r @ delta_psi_n - dt * (1-theta) * self.stiffness_matrix_IB_r @ self.dirichlet_values[:, :-1]  # shape (n_interior, n_steps)
 
-        logger.info("Boundary contributions precomputed for all time steps | Starting time-stepping loop with tqdm progress bar")
+        logger.info("Starting time-stepping loop with tqdm progress bar...")
 
         # Time-stepping loop with tqdm
         step = 0
@@ -118,9 +124,9 @@ class ReducedHeatProblem:
                 u_interior = u
         return solution
 
-    def solve(self, ntime: int, lift: str = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), g_new: Optional[Callable | np.ndarray] = None, reconstruct: bool = True, **kwargs):
+    def solve(self, ntime: int, lift: str = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, reconstruct: bool = True, **kwargs):
         if lift == 'nodal':
-            solution_r = self.solve_nodal(ntime = ntime, theta = theta, solver = solver, g_new = g_new, **kwargs)
+            solution_r = self.solve_nodal(ntime = ntime, theta = theta, solver = solver, reuse_load = reuse_load, g_new = g_new, **kwargs)
         # elif lift == 'harmonic':
         #     solution_r = self.solve_harmonic(ntime = ntime, theta = theta, solver = solver, g_new = g_new, **kwargs)
         # elif lift == 'parabolic':

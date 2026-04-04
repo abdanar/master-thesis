@@ -3,7 +3,6 @@ import itertools as it
 import numpy as np
 import pymetis
 import triangle as tr
-import time
 from utils.logger import setup_logger
 
 # ---------------- Mesh Class for Finite Element Method (FEM) -------------------
@@ -20,7 +19,7 @@ from utils.logger import setup_logger
 # -------------- Naming conventions for mesh attributes and methods --------------
 # `_node` -> means index
 # `_coord` -> means coordinate
-# `vertices` -> geometric vertices of the mesh (original input vertices, excluding edge/interior nodes added by upgrade)
+# `vertices` -> geometric vertices (nodes) of the mesh (original input vertices, excluding edge/interior nodes added by upgrade)
 # `elements` -> connectivity array defining elements (triangles in 2D, line segments in 1D)
 # `edges` -> connectivity array defining edges (line segments in 2D, points in 1D)
 # ---------------------------------------------------------------------------------
@@ -368,8 +367,56 @@ class Mesh:
                 return edges
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-    
-    # you can add parameter like `original` that returns only for 1degree mesh maps
+
+    def vertex_to_element_map(self): # f(vertex) = [elements sharing vertex]
+        """
+        Build a mapping from vertices to the list of elements that share that vertex.
+
+        This method returns a dictionary mapping each vertex index to a list of element 
+        indices that contain that vertex. Elements are indexed by their position in `self.elements`, 
+        e.g., the first element is index 0.
+
+        Returns
+        -------
+        vertex_to_elements : dict
+            Dictionary mapping each vertex index to a list of element indices that share that vertex.
+
+        Example
+        -------
+        Suppose the mesh elements are:
+            self.elements = [
+                [0, 1, 2],  # triangle 0
+                [2, 1, 3],  # triangle 1
+                [2, 3, 4]   # triangle 2
+            ]
+        Then the vertex-to-element mapping returned will be:
+            {
+                0: [0],
+                1: [0, 1],
+                2: [0, 1, 2],
+                3: [1, 2],
+                4: [2]
+            }
+        
+        Notes
+        -----
+        - The returned mapping is useful for building adjacency lists, identifying boundary vertices, and mesh partitioning.
+        - This method is implemented using a vectorized approach for efficiency, especially for large meshes. 
+        - The method works for both 1D and 2D meshes, and it considers only the geometric vertices 
+          (not edge or interior nodes added by upgrades) for the mapping.
+        """
+        elements = self.elements[:, :3] if self.dim == 2 else self.elements[:, [0, -1]]
+        all_vertices = elements.ravel()
+        element_ids = np.repeat(np.arange(elements.shape[0]), elements.shape[1])
+        order = np.argsort(all_vertices)
+        all_vertices_sorted = all_vertices[order]
+        element_ids_sorted = element_ids[order]
+        unique_vertices, counts = np.unique(all_vertices_sorted, return_counts=True)
+        splits = np.cumsum(counts)[:-1]
+        element_lists = np.split(element_ids_sorted, splits)
+        vertex_to_elements = {v: el.astype(int) for v, el in zip(unique_vertices, element_lists)}
+        return vertex_to_elements
+
     def edge_to_element_map(self): # f(edge) = {elements sharing edge}
         """
         Build a mapping from edges to elements sharing that edge, including higher-order edges.
@@ -682,10 +729,10 @@ class Mesh:
             boundary_nodes() -> array([0, 1, 2, 3, 4])
         """
         if self.dim == 1:
-            arr = self.elements.ravel() # flatten all nodes from intervals
+            arr = self.elements[:, [0, -1]].ravel() # flatten all nodes from intervals
             vals, counts = np.unique(arr, return_counts = True)  # find unique nodes and how often they appear
             return vals[counts == 1] # nodes that appear only once → endpoints
-        elif self.dim == 2:
+        elif self.dim == 2: # it does not support higher-order meshes since boundary edges are only defined by the first three nodes of each triangle
             bdedges = self.boundary_edges()
             return np.unique(bdedges.ravel())
         else:
@@ -1217,7 +1264,7 @@ class Mesh:
         subdomain_maps = dict()
         for s in range(1, n + 1):
             maps = defaultdict(list)
-            wintersection = boundary_nodes[0] & boundary_nodes[s]
+            wintersection = set(boundary_nodes[0]) & boundary_nodes[s]
             for w in wintersection: # This is for the boundary nodes of the subdomain that shares with whole boundary nodes
                 maps[global_to_local_mappings[s][w]].append((0, w))
             for t in range(1, n + 1):

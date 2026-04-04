@@ -29,27 +29,19 @@ class HeatProblem:
         self.interior_nodes = self.femspace.interior_nodes
         self.nintnodes = len(self.femspace.interior_nodes)
 
-        logger.info(f"Initialized HeatProblem with FEM space of dimension {self.dim} | nnodes = {self.nnodes} | n_boundary = {len(self.boundary_nodes)} | n_interior = {len(self.interior_nodes)}")
-
         # Assemble the global mass and stiffness matrices for the heat equation
         self.assembler = Assembler(self.femspace)
         self.mass_matrix, self.stiffness_matrix = self._assemble_matrices()
 
-        logger.info("Mass and stiffness matrices assembled | Converting to CSR format for efficient arithmetic operations...")
-
         # convert to CSR
         self.mass_matrix = self.mass_matrix.tocsr()
         self.stiffness_matrix = self.stiffness_matrix.tocsr()
-
-        logger.info("Matrices converted to CSR format | Extracting submatrices for interior and boundary nodes...")
 
         # Extract the relevant submatrices for the interior nodes and the coupling with boundary nodes
         self.mass_matrix_II = self.mass_matrix[np.ix_(self.interior_nodes, self.interior_nodes)]
         self.mass_matrix_IB = self.mass_matrix[np.ix_(self.interior_nodes, self.boundary_nodes)]
         self.stiffness_matrix_II = self.stiffness_matrix[np.ix_(self.interior_nodes, self.interior_nodes)]
         self.stiffness_matrix_IB = self.stiffness_matrix[np.ix_(self.interior_nodes, self.boundary_nodes)]
-
-        logger.info("Submatrices extracted | Preparing load vector function and evaluating initial condition at FEM nodes...")
 
         # Evaluate the initial condition at the FEM nodes
         if self.dim == 1:
@@ -61,8 +53,6 @@ class HeatProblem:
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}") 
 
-        logger.info("Initial condition evaluated at FEM nodes | HeatProblem initialization complete")
-        
     def _assemble_matrices(self) -> tuple[coo_array, coo_array]:
         """
         Assemble the global mass and stiffness matrices for the heat equation.
@@ -102,7 +92,7 @@ class HeatProblem:
         else:
             raise ValueError("Unsupported type for boundary condition g.")
 
-    def solve_nodal(self, ntime: int, theta: float = 0.5, solver: LinearSolver = DirectSolver(), g_new: Optional[Callable | np.ndarray] = None, **kwargs):
+    def solve_nodal(self, ntime: int, theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, **kwargs):
 
         # Total number of time steps
         nsteps = ntime - 1
@@ -132,12 +122,18 @@ class HeatProblem:
         lhs_const = self.mass_matrix_II + theta*dt*self.stiffness_matrix_II
         rhs_const = self.mass_matrix_II - (1 - theta)*dt*self.stiffness_matrix_II
 
-        logger.info("Precomputing load vectors for all time steps...")
+        # Precompute the load vectors for all time steps if reuse_load is True, otherwise compute them on the fly in the time-stepping loop
+        if reuse_load and hasattr(self, 'F_all') and self.F_all.shape[1] == ntime:
+            F_all = self.F_all
+            logger.info("Reusing previously computed load vectors for all time steps...")
+        else:
+            logger.info("Computing load vectors for all time steps...")
+            F_all = np.column_stack([self.load_vector(t)[self.interior_nodes] for t in time_steps])
+            
+        if reuse_load:
+            self.F_all = F_all  # store only if reuse is enabled
 
-        # Precompute load vectors for all time steps for interior nodes
-        F_all = np.column_stack([self.load_vector(t)[self.interior_nodes] for t in time_steps]) # shape (n_interior, n_time)
-
-        logger.info("Load vectors precomputed for all time steps | Precomputing boundary contributions for all time steps...")
+        logger.info("Computing boundary contributions for all time steps...")
 
         # Columns are psi_{n+1} - psi_n for n = 0, ..., nsteps-1
         delta_psi_np1 = self.dirichlet_values[:, 1:] - self.dirichlet_values[:, :-1] # shape (n_boundary, n_steps)
@@ -146,7 +142,7 @@ class HeatProblem:
         # Precompute boundary contributions for all steps (vectorized)
         R_all = dt*(theta*F_all[:, 1:] + (1-theta)*F_all[:, :-1]) - theta * self.mass_matrix_IB @ delta_psi_np1 - dt * theta * self.stiffness_matrix_IB @ self.dirichlet_values[:, 1:] - (1-theta) * self.mass_matrix_IB @ delta_psi_n - dt * (1-theta) * self.stiffness_matrix_IB @ self.dirichlet_values[:, :-1]  # shape (n_interior, n_steps)
 
-        logger.info("Boundary contributions precomputed for all time steps | Starting time-stepping loop with tqdm progress bar")
+        logger.info("Starting time-stepping loop with tqdm progress bar...")
 
         # Time-stepping loop with tqdm
         step = 0
@@ -162,7 +158,151 @@ class HeatProblem:
         solution[self.boundary_nodes, :] = self.dirichlet_values
         return solution
 
-    def solve(self, ntime: int, lift: str = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), g_new: Optional[Callable | np.ndarray] = None,**kwargs):
+    def solve_harmonic(self, ntime: int, theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, **kwargs):
+
+        # Total number of time steps
+        nsteps = ntime - 1
+
+        # Generate time steps (assuming uniform time steps)
+        time_steps = np.linspace(self.t0, self.T, ntime)
+
+        # Time step size (assuming uniform time steps)
+        dt = (self.T - self.t0) / nsteps
+
+        # Update the boundary condition values if a new g is provided (either as a function or as a numpy array)
+        g_to_use = g_new if g_new is not None else self.g
+        self.dirichlet_values = self.vectorize(g_to_use, time_steps) # shape (n_boundary, n_time)
+
+        # Pre-allocate solution array: columns are time steps
+        solution = np.zeros((self.femspace.nnodes, ntime))
+
+        logger.info(f"Using θ-method time-stepping with θ = {theta} | Starting time integration | nsteps = {nsteps}, dt = {dt:.3e}")
+
+        # Precompute constant parts of the system matrix for the θ-method
+        lhs_const = self.mass_matrix_II + theta*dt*self.stiffness_matrix_II
+        rhs_const = self.mass_matrix_II - (1 - theta)*dt*self.stiffness_matrix_II
+
+        # Precompute the load vectors for all time steps if reuse_load is True, otherwise compute them on the fly in the time-stepping loop
+        if reuse_load and hasattr(self, 'F_all') and self.F_all.shape[1] == ntime:
+            F_all = self.F_all
+            logger.info("Reusing previously computed load vectors for all time steps...")
+        else:
+            logger.info("Computing load vectors for all time steps...")
+            F_all = np.column_stack([self.load_vector(t)[self.interior_nodes] for t in time_steps])
+            
+        if reuse_load:
+            self.F_all = F_all  # store only if reuse is enabled
+
+        logger.info("Computing boundary contributions for all time steps...")
+
+        # Columns are psi_{n+1} - psi_n for n = 0, ..., nsteps-1
+        delta_psi_np1 = self.dirichlet_values[:, 1:] - self.dirichlet_values[:, :-1] # shape (n_boundary, n_steps)
+        delta_psi_n = np.column_stack([delta_psi_np1[:, 0:1], delta_psi_np1[:, :-1]]) # shape (n_boundary, n_steps)
+
+        logger.info("Computing harmonic lifting values for all time steps...")
+
+        # Columns are l_{n+1} - l_n for n = 0, ..., nsteps-1 (computed by solving the harmonic lifting problem for each time step)
+        lift_values = np.zeros((self.nintnodes, ntime)) # shape (n_interior, n_time)
+        for i in range(ntime):
+            lift_values[:, i] = solver.solve(A = self.stiffness_matrix_II, b = -self.stiffness_matrix_IB @ self.dirichlet_values[:, i], **kwargs) # shape (n_interior,)
+        lift_np1 = lift_values[:, 1:] - lift_values[:, :-1] # shape (n_interior, n_steps)
+        lift_n = np.column_stack([lift_np1[:, 0:1], lift_np1[:, :-1]]) # shape (n_interior, n_steps)
+
+        # Precompute boundary contributions for all steps (vectorized)
+        R_all = dt*(theta*F_all[:, 1:] + (1-theta)*F_all[:, :-1]) - theta * self.mass_matrix_IB @ delta_psi_np1 - theta * self.mass_matrix_II @ lift_np1 - (1-theta) * self.mass_matrix_IB @ delta_psi_n - (1-theta) * self.mass_matrix_II @ lift_n  # shape (n_interior, n_steps)
+
+        logger.info("Starting time-stepping loop with tqdm progress bar...")
+
+        # Time-stepping loop with tqdm
+        step = 0
+        t = self.t0
+        u_interior = self.icond[self.interior_nodes] - lift_values[:, 0] # shape (n_interior,)
+        with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, disable = not sys.stdout.isatty()) as pbar:
+            for step in pbar:
+                pbar.set_postfix_str(f"\033[93mt={t:.3e}\033[0m")
+                t += dt
+                rhs = rhs_const @ u_interior + R_all[:, step]
+                u = solver.solve(lhs_const, rhs, **kwargs)
+                solution[self.interior_nodes, step + 1] = u # shape (n_interior,)
+                u_interior = u
+        solution[self.boundary_nodes, :] = self.dirichlet_values
+        solution[self.interior_nodes, :] += lift_values
+        solution[:, 0] = self.icond
+        return solution
+    
+    def solve_parabolic(self, ntime: int, theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, **kwargs):
+
+        # Total number of time steps
+        nsteps = ntime - 1
+
+        # Generate time steps (assuming uniform time steps)
+        time_steps = np.linspace(self.t0, self.T, ntime)
+
+        # Time step size (assuming uniform time steps)
+        dt = (self.T - self.t0) / nsteps
+
+        # Update the boundary condition values if a new g is provided (either as a function or as a numpy array)
+        g_to_use = g_new if g_new is not None else self.g
+        self.dirichlet_values = self.vectorize(g_to_use, time_steps) # shape (n_boundary, n_time)
+
+        # Pre-allocate solution array: columns are time steps
+        solution = np.zeros((self.femspace.nnodes, ntime))
+
+        logger.info(f"Using θ-method time-stepping with θ = {theta} | Starting time integration | nsteps = {nsteps}, dt = {dt:.3e}")
+
+        # Precompute constant parts of the system matrix for the θ-method
+        lhs_const = self.mass_matrix_II + theta*dt*self.stiffness_matrix_II
+        rhs_const = self.mass_matrix_II - (1 - theta)*dt*self.stiffness_matrix_II
+
+        # Precompute the load vectors for all time steps if reuse_load is True, otherwise compute them on the fly in the time-stepping loop
+        if reuse_load and hasattr(self, 'F_all') and self.F_all.shape[1] == ntime:
+            F_all = self.F_all
+            logger.info("Reusing previously computed load vectors for all time steps...")
+        else:
+            logger.info("Computing load vectors for all time steps...")
+            F_all = np.column_stack([self.load_vector(t)[self.interior_nodes] for t in time_steps])
+            
+        if reuse_load:
+            self.F_all = F_all  # store only if reuse is enabled
+
+        logger.info("Computing boundary contributions for all time steps...")
+
+        # Columns are psi_{n+1} - psi_n for n = 0, ..., nsteps-1
+        delta_psi_np1 = self.dirichlet_values[:, 1:] - self.dirichlet_values[:, :-1] # shape (n_boundary, n_steps)
+        delta_psi_n = np.column_stack([delta_psi_np1[:, 0:1], delta_psi_np1[:, :-1]]) # shape (n_boundary, n_steps)
+
+        logger.info("Computing parabolic lifting values for all time steps...")
+
+        # Parabolic lifting values for all time steps
+        lift_values = np.zeros((self.nintnodes, ntime)) # shape (n_interior, n_time)
+        for i in range(ntime):
+            lift_values[:, i] = solver.solve(A = self.stiffness_matrix_II, b = -self.stiffness_matrix_IB @ self.dirichlet_values[:, i], **kwargs) # shape (n_interior,)
+        lift_np1 = lift_values[:, 1:] - lift_values[:, :-1] # shape (n_interior, n_steps)
+        lift_n = np.column_stack([lift_np1[:, 0:1], lift_np1[:, :-1]]) # shape (n_interior, n_steps)
+
+        # Precompute boundary contributions for all steps (vectorized)
+        R_all = dt*(theta*F_all[:, 1:] + (1-theta)*F_all[:, :-1]) - theta * self.mass_matrix_IB @ delta_psi_np1 - theta * self.mass_matrix_II @ lift_np1 - (1-theta) * self.mass_matrix_IB @ delta_psi_n - (1-theta) * self.mass_matrix_II @ lift_n  # shape (n_interior, n_steps)
+
+        logger.info("Starting time-stepping loop with tqdm progress bar...")
+
+        # Time-stepping loop with tqdm
+        step = 0
+        t = self.t0
+        u_interior = self.icond[self.interior_nodes] - lift_values[:, 0] # shape (n_interior,)
+        with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, disable = not sys.stdout.isatty()) as pbar:
+            for step in pbar:
+                pbar.set_postfix_str(f"\033[93mt={t:.3e}\033[0m")
+                t += dt
+                rhs = rhs_const @ u_interior + R_all[:, step]
+                u = solver.solve(lhs_const, rhs, **kwargs)
+                solution[self.interior_nodes, step + 1] = u # shape (n_interior,)
+                u_interior = u
+        solution[self.boundary_nodes, :] = self.dirichlet_values
+        solution[self.interior_nodes, :] += lift_values
+        solution[:, 0] = self.icond
+        return solution
+    
+    def solve(self, ntime: int, lift: str = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None,**kwargs):
         """
         Solves the heat equation using the specified time-stepping method and boundary condition handling.
 
@@ -201,9 +341,9 @@ class HeatProblem:
             The computed solution vector at the FEM nodes.
         """
         if lift == 'nodal':
-            solution = self.solve_nodal(ntime = ntime, theta = theta, solver = solver, g_new = g_new, **kwargs)
-        # elif lift == 'harmonic':
-        #     solution = self.solve_harmonic(ntime = ntime, theta = theta, solver = solver, g_new = g_new, **kwargs)
+            solution = self.solve_nodal(ntime = ntime, theta = theta, solver = solver, reuse_load = reuse_load, g_new = g_new, **kwargs)
+        elif lift == 'harmonic':
+            solution = self.solve_harmonic(ntime = ntime, theta = theta, solver = solver, reuse_load = reuse_load, g_new = g_new, **kwargs)
         # elif lift == 'parabolic':
         #     solution = self.solve_parabolic(ntime = ntime, theta = theta, solver = solver, g_new = g_new, **kwargs)
         else:

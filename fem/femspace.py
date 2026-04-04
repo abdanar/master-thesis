@@ -73,6 +73,9 @@ class FEMSpace:
         mask = np.ones(self.nnodes, dtype = bool)
         mask[self.boundary_nodes] = False
         self.interior_nodes = np.flatnonzero(mask)
+        global_to_boundary_nodes = -np.ones(self.nnodes, dtype = int)
+        global_to_boundary_nodes[self.boundary_nodes] = np.arange(self.nbdnodes)
+        self.gtobd = global_to_boundary_nodes
         
     def upgrade(self, mesh: Mesh) -> Mesh:
         """

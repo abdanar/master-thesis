@@ -130,213 +130,6 @@ class SolutionVisualizer:
 
         plt.show()
 
-    def plot_comparison(self, u_exact_func = None, cmap = 'viridis'):
-        """
-        Plot FEM solution for 2D triangular mesh as a 3D surface,
-        optionally comparing with the exact solution side by side.
-
-        Parameters
-        ----------
-        u_exact_func : callable, optional
-            Function u_exact(x, y) returning the exact solution.
-            If provided, a side-by-side comparison will be plotted.
-        cmap : str, optional
-            Colormap for surface plot (default 'viridis').
-        """
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
-        import matplotlib.tri as mtri
-
-        vertices = self.mesh.vertices
-        elements = self.mesh.elements
-
-        x = vertices[:, 0]
-        y = vertices[:, 1]
-        z_fem = self.u.ravel()  # FEM solution
-
-        triang = mtri.Triangulation(x, y, elements)
-
-        if u_exact_func is None:
-            # Single plot
-            fig = plt.figure(figsize=(8,6))
-            ax = fig.add_subplot(111, projection='3d')
-            surf = ax.plot_trisurf(triang, z_fem, cmap=cmap, edgecolor='k', linewidth=0.2, antialiased=True)
-            fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='Solution u')
-            ax.set_xlabel('x'); ax.set_ylabel('y'); ax.set_zlabel('u')
-            ax.set_title('FEM Solution 3D Surface')
-            plt.show()
-        else:
-            # Side-by-side plots
-            fig = plt.figure(figsize=(14,6))
-
-            # FEM solution
-            ax1 = fig.add_subplot(121, projection='3d')
-            surf1 = ax1.plot_trisurf(triang, z_fem, cmap=cmap, edgecolor='k', linewidth=0.2, antialiased=True)
-            fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10, label='u_h')
-            ax1.set_xlabel('x'); ax1.set_ylabel('y'); ax1.set_zlabel('u')
-            ax1.set_title('FEM Solution')
-
-            # Exact solution
-            z_exact = u_exact_func(x, y)
-            ax2 = fig.add_subplot(122, projection='3d')
-            surf2 = ax2.plot_trisurf(triang, z_exact, cmap=cmap, edgecolor='k', linewidth=0.2, antialiased=True)
-            fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10, label='u_exact')
-            ax2.set_xlabel('x'); ax2.set_ylabel('y'); ax2.set_zlabel('u')
-            ax2.set_title('Exact Solution')
-
-            plt.show()
-
-    def visualize_1d_time_compare(self, exact_func, nx=200):
-        """
-        Compare 1D FEM solution with exact solution over time.
-        
-        exact_func(x, t)
-        """
-
-        idx = np.argsort(self.mesh.vertices)
-        x_mesh = self.mesh.vertices[idx]
-        x_grid = np.linspace(x_mesh.min(), x_mesh.max(), nx)
-
-        fig, ax = plt.subplots(figsize=(8,5))
-        plt.subplots_adjust(bottom=0.25)
-
-        # Initial plot
-        z_exact = exact_func(x_grid, 0.0)
-        z_num = self.u[:, 0][idx]
-
-        line_exact, = ax.plot(x_grid, z_exact, 'r-', label='Exact')
-        line_num, = ax.plot(x_mesh, z_num, 'bo-', label='Numerical')
-        ax.set_xlabel('x'); ax.set_ylabel('u')
-        ax.set_title('Time = 0.0')
-        ax.legend()
-        
-        # Slider
-        ax_slider = plt.axes([0.25, 0.1, 0.5, 0.03])
-        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime-1, valinit=0, valstep=1)
-
-        def update(val):
-            step = int(time_slider.val)
-            t = step*self.dt
-            line_exact.set_ydata(exact_func(x_grid, t))
-            line_num.set_ydata(self.u[:, step][idx])
-            ax.set_title(f'Time = {t:.3f}')
-            fig.canvas.draw_idle()
-
-        time_slider.on_changed(update)
-        plt.show()
-
-    def visualize_3d_time(self, cmap = 'viridis'):
-        """
-        Interactive 3D visualization with time slider.
-        """
-        x = self.mesh.vertices[:, 0]
-        y = self.mesh.vertices[:, 1]
-        elements = self.mesh.elements
-
-        triang = mtri.Triangulation(x, y, elements)
-
-        fig = plt.figure(figsize = (8,6), dpi = 100)
-        ax = fig.add_subplot(111, projection = '3d')
-        plt.subplots_adjust(bottom = 0.25)
-
-        # Initial surface
-        z = self.u[:, 0]
-        surf = ax.plot_trisurf(triang, z, cmap = cmap, edgecolor = 'k', linewidth = 0.2, antialiased = True)
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('u')
-        ax.set_title(f'FEM Solution 3D Surface | t = 0.0')
-
-        fig.colorbar(surf, ax = ax, shrink = 0.5, aspect = 10, label = 'Solution u')
-
-        # Slider axes
-        ax_slider = plt.axes((0.25, 0.1, 0.5, 0.03))
-        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime - 1, valinit = 0, valstep = 1)
-
-        def update(val):
-            step = int(time_slider.val)
-            ax.clear()
-            z = self.u[:, step]
-            surf = ax.plot_trisurf(triang, z, cmap = cmap, edgecolor = 'k', linewidth = 0.2, antialiased = True)
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
-            ax.set_zlabel('u')
-            ax.set_title(f'FEM Solution 3D Surface | t = {step*self.dt:.3f}')
-            fig.canvas.draw_idle()
-
-        time_slider.on_changed(update)
-        plt.show()
-
-    def visualize_3d_time_compare(self, exact_func, cmap='viridis', nx=100, ny=100):
-        """
-        Compare numeric FEM solution (triangular mesh) with smooth exact solution
-        on a fine grid for better visualization.
-        
-        Parameters:
-        -----------
-        exact_func : callable
-            exact_func(x, y, t)
-        cmap : str
-            colormap
-        nx, ny : int
-            resolution of the grid for smooth exact solution
-        """
-        x_mesh = self.mesh.vertices[:, 0]
-        y_mesh = self.mesh.vertices[:, 1]
-        elements = self.mesh.elements
-        triang = mtri.Triangulation(x_mesh, y_mesh, elements)
-
-        # Create fine grid for smooth exact solution
-        x_grid = np.linspace(0, 1, nx)
-        y_grid = np.linspace(0, 1, ny)
-        X_grid, Y_grid = np.meshgrid(x_grid, y_grid)
-
-        fig = plt.figure(figsize=(14,6))
-        ax1 = fig.add_subplot(121, projection='3d')
-        ax2 = fig.add_subplot(122, projection='3d')
-        plt.subplots_adjust(bottom=0.25)
-
-        # Initial surfaces
-        z_exact = exact_func(X_grid, Y_grid, 0.0)
-        z_num = self.u[:, 0]
-
-        surf1 = ax1.plot_surface(X_grid, Y_grid, z_exact, cmap=cmap, edgecolor='none')
-        ax1.set_title('Exact Solution (Smooth)')
-        ax1.set_xlabel('x'); ax1.set_ylabel('y'); ax1.set_zlabel('u')
-        fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10, label='u')
-
-        surf2 = ax2.plot_trisurf(triang, z_num, cmap=cmap, edgecolor='k', linewidth=0.2)
-        ax2.set_title('Numerical Solution')
-        ax2.set_xlabel('x'); ax2.set_ylabel('y'); ax2.set_zlabel('u')
-        fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10, label='u')
-
-        # Slider
-        ax_slider = plt.axes((0.25, 0.1, 0.5, 0.03))
-        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime-1, valinit=0, valstep=1)
-
-        def update(val):
-            step = int(time_slider.val)
-            t = step*self.dt
-
-            ax1.cla()
-            ax2.cla()
-
-            # Smooth exact
-            z_exact = exact_func(X_grid, Y_grid, t)
-            ax1.plot_surface(X_grid, Y_grid, z_exact, cmap=cmap, edgecolor='none')
-            ax1.set_title(f'Exact Solution | t={t:.3f}')
-            ax1.set_xlabel('x'); ax1.set_ylabel('y'); ax1.set_zlabel('u')
-
-            # Numeric
-            z_num = self.u[:, step]
-            ax2.plot_trisurf(triang, z_num, cmap=cmap, edgecolor='k', linewidth=0.2)
-            ax2.set_title(f'Numerical Solution | t={t:.3f}')
-            ax2.set_xlabel('x'); ax2.set_ylabel('y'); ax2.set_zlabel('u')
-
-            fig.canvas.draw_idle()
-
-        time_slider.on_changed(update)
-        plt.show()
 
     def _plot_error_1D_static(self, exact, figsize: tuple = (7, 4), dpi: int = 100, 
                               xlabel: str = 'x', ylabel: str = 'error', title: str = '1D Steady-State Error', **kwargs):
@@ -364,9 +157,9 @@ class SolutionVisualizer:
 
         def update(val):
             step = int(time_slider.val)
-            err = self.u[:, step] - exact(x, step*self.dt)
+            err = self.u[:, step] - exact(x, step*self.dt) # type: ignore
             line.set_ydata(err)
-            ax.set_title(f'{title} | t={step*self.dt:.3f}')
+            ax.set_title(f'{title} | t={step*self.dt:.3f}') # type: ignore
             fig.canvas.draw_idle()
 
         time_slider.on_changed(update)
@@ -408,13 +201,13 @@ class SolutionVisualizer:
 
         def update(val):
             step = int(time_slider.val)
-            err = self.u[:, step] - exact(x, y, step * self.dt)
+            err = self.u[:, step] - exact(x, y, step * self.dt) # type: ignore
             ax.cla()
             ax.plot_trisurf(triang, err, **kwargs)
             ax.set_xlabel(xlabel)
             ax.set_ylabel(ylabel)
             ax.set_zlabel(zlabel)
-            ax.set_title(f'{title} | t={step * self.dt:.3f}')
+            ax.set_title(f'{title} | t={step * self.dt:.3f}') # type: ignore
             fig.colorbar(surf, ax = ax, shrink = 0.5, aspect = 10, label = zlabel)
             fig.canvas.draw_idle()
 
@@ -463,37 +256,62 @@ class SolutionVisualizer:
             raise ValueError("Unsupported mesh dimension or time steps")
     
     def plot_convergence(self, error_history, logscale: bool = True, figsize: tuple = (6, 4), dpi: int = 150,
-                         xlabel: str = "Iteration", ylabel: str = r"$\| u_h - u \|_{L^2}$", 
-                         title: str = r"Iteration vs $L^{2}$ Error", **kwargs):
+                         xlabel: str = "Iteration number", ylabel: str = r"$\| u_h - u \|_{L^2}$", 
+                         title: str = r"Iteration vs $L^{2}$ Error", grid: bool = True, styles = None, **kwargs):
         """
-        Plot convergence history of Schwarz iterations.
+        Plot convergence history of Schwarz iterations. This function is intended to be used with the error history tracked during Schwarz iterations, 
+        which can be stored in `self.error_history` and `self.error_subdomains`. It supports plotting the global error history as well as the error 
+        history for each subdomain in one plot if available.
 
         Parameters
         ----------
-        error_history : list or array
-            List of error values per iteration.
+        error_history : list or array or dict
+            List of error values per iteration, or a dictionary with subdomain IDs as keys and lists of error values as values.
         logscale : bool, default True
             If True, use semilog-y scale (recommended for convergence plots).
         figsize : tuple, default (6, 4)
             Figure size in inches.
         dpi : int, default 150
             Dots per inch for the figure.
+        xlabel : str, default "Iteration number"
+            Label for the x-axis.
+        ylabel : str
+            Label for the y-axis.
         title : str, default "Iteration vs L2 Error"
             Plot title.
+        styles : dict, optional
+            A dictionary mapping subdomain IDs to style dictionaries for plotting 
+            (e.g., {'subdomain1': {'color': 'r', 'linestyle': '--'}, 'subdomain2': {'color': 'b', 'linestyle': '-'}}).
         **kwargs : dict
             Additional keyword arguments to pass to plt.plot / plt.semilogy
             e.g., marker='o', color='r', linewidth=2, linestyle='--', alpha=0.7
         """
-        iterations = range(1, len(error_history) + 1)
         plt.figure(figsize=figsize, dpi=dpi)
-        if logscale:
-            plt.semilogy(iterations, error_history, **kwargs)
+        if isinstance(error_history, dict):
+            for subdomain, errors in error_history.items():
+                iterations = range(1, len(errors) + 1)
+                style = dict(kwargs)
+                if styles and subdomain in styles:
+                    style.update(styles[subdomain])
+                if logscale:
+                    plt.semilogy(iterations, errors, label=f"Subdomain {subdomain}", **style)
+                else:
+                    plt.plot(iterations, errors, label=f"Subdomain {subdomain}", **style)
+            plt.xlim(1, len(error_history[1]))
+            plt.legend(frameon=True, fancybox=False, edgecolor='black', framealpha=1.0)
         else:
-            plt.plot(iterations, error_history, **kwargs)
+            iterations = range(1, len(error_history) + 1)
+            if logscale:
+                plt.semilogy(iterations, error_history, **kwargs)
+            else:
+                plt.plot(iterations, error_history, **kwargs)
+            plt.xlim(1, len(error_history))
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
         plt.title(title)
-        plt.grid(True)
+        if grid:
+            plt.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+        plt.tick_params(direction='in', which='both', top=True, right=True)
         plt.tight_layout()
         plt.show()
 

@@ -35,12 +35,17 @@ def h1D(x):
 # Define 1D Heat problem
 problem1D = HeatProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D)
 
-# Solve the 1D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
-heat_solution1D = problem1D.solve(ntime = ntime, lift = 'nodal', theta = 1)
+# Solve the 1D Heat problem using nodal lifting and theta method with theta = 1 (Backward Euler)
+heat_solution1D_nodal = problem1D.solve(ntime = ntime, lift = 'nodal', theta = 1)
+
+# Solve the 1D Heat problem using harmonic lifting and theta method with theta = 1 (Backward Euler)
+heat_solution1D_harmonic = problem1D.solve(ntime = ntime, lift = 'harmonic', theta = 1)
 
 # Error analysis
-error1D = np.linalg.norm(heat_solution1D - exact1D(mesh1D.vertices[:, None], time_steps[None, :]), axis = 0)
-print("max error (fem vs exact):", error1D.max())
+error1D_nodal = np.linalg.norm(heat_solution1D_nodal - exact1D(mesh1D.vertices[:, None], time_steps[None, :]), axis = 0)
+error1D_harmonic = np.linalg.norm(heat_solution1D_harmonic - exact1D(mesh1D.vertices[:, None], time_steps[None, :]), axis = 0)
+print("max error (fem vs exact) with nodal lifting:", error1D_nodal.max())
+print("max error (fem vs exact) with harmonic lifting:", error1D_harmonic.max())
 
 # ----------------------------
 # 2D Example (Heat problem)
@@ -76,9 +81,14 @@ def h2D(x, y):
 # Define 2D Heat problem
 problem2D = HeatProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D)
 
-# Solve the 2D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
-heat_solution2D = problem2D.solve(ntime = ntime, lift = 'nodal', theta = 1)
+# Solve the 2D Heat problem using nodal lifting and theta method with theta = 1 (Backward Euler)
+heat_solution2D_nodal = problem2D.solve(ntime = ntime, lift = 'nodal', theta = 1)
+
+# Solve the 2D Heat problem using harmonic lifting and theta method with theta = 1 (Backward Euler)
+heat_solution2D_harmonic = problem2D.solve(ntime = ntime, lift = 'harmonic', theta = 1)
 
 # Error analysis
-error2D = np.linalg.norm(heat_solution2D - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_steps[None, :]), axis = 0)
-print("max error (fem vs exact):", error2D.max())
+error2D_nodal = np.linalg.norm(heat_solution2D_nodal - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_steps[None, :]), axis = 0)
+error2D_harmonic = np.linalg.norm(heat_solution2D_harmonic - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_steps[None, :]), axis = 0)
+print("max error (fem vs exact) with nodal lifting:", error2D_nodal.max())
+print("max error (fem vs exact) with harmonic lifting:", error2D_harmonic.max())

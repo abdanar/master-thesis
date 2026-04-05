@@ -1,12 +1,7 @@
 import numpy as np
-import meshio
-import os
 import matplotlib.tri as mtri
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
-from matplotlib.collections import LineCollection
-from matplotlib.colors import Normalize  # <- correct import
-import matplotlib.cm as cm
 from fem.mesh import Mesh
 from typing import Callable, Optional
 

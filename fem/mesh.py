@@ -70,8 +70,6 @@ class Mesh:
             Boundary segments for 2D triangulation. Shape (n_segments, 2). For 1D, this is just the boundary nodes.
         segment_markers : np.ndarray
             Markers for the boundary segments. Shape (n_segments,). For 1D, default markers are 1 for left boundary and 2 for right boundary.
-        dofs : np.ndarray
-            Global node indices used by the FEM discretization. Initially corresponds to vertex indices, but can include edge/interior nodes after upgrade.
 
         Note to users
         -------------
@@ -128,7 +126,6 @@ class Mesh:
                     self.segment_markers = np.asarray(segment_markers, dtype=int).flatten()
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-        self.dofs = np.unique(self.elements) # global DoF indices used by the FEM discretization (initially just vertex indices, but can include edge/interior nodes after upgrade)
 
     def nnodes(self) -> int:
         """
@@ -1378,8 +1375,8 @@ class Mesh:
         Return a human-readable summary of the mesh.
         Works for both 1D (lines) and 2D (triangles) meshes.
         """
-        num_nodes = self.nnodes()
-        num_elements = self.elements.shape[0]
+        nnodes = self.nnodes()
+        nelements = self.nelements()
         num_boundary_nodes = len(self.boundary_nodes())
         total_measure  = np.sum(self.measures()) # Total measure: length for 1D, area for 2D
         element_type = "lines" if self.dim == 1 else "triangles"
@@ -1388,8 +1385,8 @@ class Mesh:
         f"Mesh Information:\n"
         f"  Dimension: {self.dim}D\n"
         f"  Domain ID: {self.domainID}\n"
-        f"  Number of nodes: {num_nodes}\n"
-        f"  Number of elements ({element_type}): {num_elements}\n"
+        f"  Number of nodes: {nnodes}\n"
+        f"  Number of elements ({element_type}): {nelements}\n"
         f"  Number of boundary nodes: {num_boundary_nodes}\n"
         f"  Number of boundary elements: {num_boundary_elements}\n"
         f"  Total measure ({'length' if self.dim == 1 else 'area'}): {total_measure}")

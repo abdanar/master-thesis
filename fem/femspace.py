@@ -253,10 +253,11 @@ class FEMSpace:
         coef : np.ndarray
             Coefficient vector representing the interpolated function in the FEM space.
         """
+        dofs = np.unique(self.mesh.elements)
         if self.space != 'Lagrange':
             raise ValueError("Interpolation is only implemented for Lagrange finite element spaces where nodal variables correspond to point evaluations at the nodes.")
         coef = np.zeros(self.mesh.nnodes())
-        indices = self.mesh.dofs if boundary is None else np.setdiff1d(self.mesh.dofs, boundary.dirichlet_nodes)
+        indices = dofs if boundary is None else np.setdiff1d(dofs, boundary.dirichlet_nodes)
         for index in indices:
             coef[index] = f(self.mesh.vertices[index])
         return coef
@@ -303,6 +304,7 @@ class FEMSpace:
         compatible with nodal DOFs.
         - Currently supports 1D and 2D FEM spaces only.
         """
+        dofs = np.unique(self.mesh.elements)
         if self.dim == 1:
             reaction = lambda x: 1
         elif self.dim == 2:
@@ -317,7 +319,7 @@ class FEMSpace:
         mass_matrix = assembler.global_mass_matrix(reaction = reaction)
         rhs = assembler.global_load_vector(func = f)
 
-        indices = self.mesh.dofs if boundary is None else np.setdiff1d(self.mesh.dofs, boundary.dirichlet_nodes)
+        indices = dofs if boundary is None else np.setdiff1d(dofs, boundary.dirichlet_nodes)
 
         # Choose solver-friendly format (COO format does not directly support slicing)
         if isinstance(solver, DirectSolver):

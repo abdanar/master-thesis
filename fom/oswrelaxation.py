@@ -169,7 +169,6 @@ class OSWRProblem():
         exact : Callable, optional
             The exact solution function for the Heat problem. Used as a reference solution for error analysis if provided.
         """
-
         # Compute error norms for each subdomain and store them in self.error_subdomains
         for subdomain in self.subdomains:
             if subdomain.domainID not in self.error_subdomains:
@@ -177,7 +176,6 @@ class OSWRProblem():
             subest = ErrorNorms(femspace = subproblems[subdomain.domainID].femspace, u1 = oswr_data[subdomain.domainID], u2 = self.restrict(uh, subdomain.domainID) if uh is not None else None, u_exact = exact, time = time_steps)
             suberror_norm = subest.compute(norm)
             self.error_subdomains[subdomain.domainID].append(suberror_norm)
-
         # Compute error norm for the global solution and store it in self.error_history
         oswr_sol = self.combine(ntime = ntime, method = method, data = oswr_data)
         est = ErrorNorms(femspace = self.femspace, u1 = oswr_sol, u2 = uh, u_exact = exact, time = np.linspace(self.t0, self.T, ntime))

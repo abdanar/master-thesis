@@ -653,10 +653,10 @@ class Mesh:
             mask = np.isin(edges, endpoints).any(axis=1)
             return edges[mask]
         elif self.dim == 2:
-            tri_nodes = self.elements[:, :3]
-            edges = np.vstack([np.sort(tri_nodes[:, [0, 1]], axis=1),
-                               np.sort(tri_nodes[:, [1, 2]], axis=1),
-                               np.sort(tri_nodes[:, [2, 0]], axis=1)])
+            tri_vertices = self.elements[:, :3]
+            edges = np.vstack([np.sort(tri_vertices[:, [0, 1]], axis=1),
+                               np.sort(tri_vertices[:, [1, 2]], axis=1),
+                               np.sort(tri_vertices[:, [2, 0]], axis=1)])
             unique_edges, counts = np.unique(edges, axis = 0, return_counts = True)
             return unique_edges[counts == 1]
         else:
@@ -689,7 +689,7 @@ class Mesh:
 
     def boundary_nodes(self) -> np.ndarray:
         """
-        Returns the indices of all nodes lying on the boundary of the mesh.
+        Returns all the nodes (indices) lying on the boundary of the mesh.
 
         In 1D, the boundary consists of the **endpoints** of the mesh.  
         In 2D, the boundary nodes are all nodes that belong to **at least one boundary edge**.
@@ -703,10 +703,10 @@ class Mesh:
         -----
         - For 1D meshes, the endpoints are identified as the nodes that appear in 
         exactly one interval.
-        - For 2D meshes, the method relies on `self.boundary_edges()` to find all 
-        edges on the boundary, then collects all unique nodes from these edges.
-        - The output is a **NumPy array** for direct use in FEM assembly, Dirichlet
-        boundary conditions, or visualization.
+        - For 2D meshes, boundary nodes are identified by first finding the boundary 
+        edges (edges that belong to only one triangle) and then collecting all unique 
+        nodes that are part of those boundary edges. It supports both linear and 
+        higher-order meshes.
         - Always returns nodes in ascending order due to `np.unique`.
 
         Examples
@@ -725,7 +725,6 @@ class Mesh:
                 [2, 1, 3],
                 [2, 3, 4]
             ]
-            boundary_edges() -> array([[0,1],[0,2],[1,3],[2,4],[3,4]])
             boundary_nodes() -> array([0, 1, 2, 3, 4])
         """
         if self.dim == 1:
@@ -733,8 +732,44 @@ class Mesh:
             vals, counts = np.unique(arr, return_counts = True)  # find unique nodes and how often they appear
             return vals[counts == 1] # nodes that appear only once → endpoints
         elif self.dim == 2: # it does not support higher-order meshes since boundary edges are only defined by the first three nodes of each triangle
-            bdedges = self.boundary_edges()
-            return np.unique(bdedges.ravel())
+            if self.degree == 1:
+                bdedges = self.boundary_edges()
+                return np.unique(bdedges.ravel())
+            else:
+                k = self.degree - 1 # number of edge nodes per edge
+                vertices = self.elements[:, :3]
+                # Extract geometric edges defined by the first three nodes of each triangle
+                e0 = np.sort(vertices[:, [0, 1]], axis=1)
+                e1 = np.sort(vertices[:, [1, 2]], axis=1)
+                e2 = np.sort(vertices[:, [2, 0]], axis=1)
+                # Stack all geometric edges into a single array for processing. Each edge is represented as a pair of vertex indices (i, j) with i < j.
+                edges = np.stack([e0, e1, e2], axis=1)  # shape (n_elem,3,2)
+                # Reshape the edges array to have shape (n_elem*3, 2) so that each row corresponds to a single edge. This makes it easier to identify unique edges and count their occurrences.
+                edges_2d = edges.reshape(-1, 2)
+                # Identify boundary edges by finding unique edges and counting how many times each edge appears.
+                edges_2d = np.ascontiguousarray(edges_2d)
+                uniq, counts = np.unique(edges_2d, axis=0, return_counts=True)
+                bdedges = np.ascontiguousarray(uniq[counts==1])
+                # To efficiently check which edges in `edges` are boundary edges, we can use a structured array view to treat each edge as a single entity. 
+                dtype = np.dtype([('a', edges_2d.dtype), ('b', edges_2d.dtype)])
+                edges_view = edges_2d.view(dtype).ravel()
+                bdedges_view = bdedges.view(dtype).ravel()
+                # Create a boolean mask indicating which edges in `edges` are boundary edges by checking membership in `bdedges`.
+                mask = np.isin(edges_view, bdedges_view)
+                # Reshape the mask back to the original edge structure (3 edges per triangle) to identify which triangles contain boundary edges.
+                mask_tri = mask.reshape(-1, 3)
+                # Extract edge nodes for each geometric edge of the triangle. The edge nodes are stored in the `elements` array immediately following the first three nodes (corner vertices).
+                e0_nodes = self.elements[:, 3 : 3 + k]
+                e1_nodes = self.elements[:, 3 + k : 3 + 2*k]
+                e2_nodes = self.elements[:, 3 + 2*k : 3 + 3*k]
+                # Collect all boundary nodes
+                bd_nodes = np.concatenate([vertices[mask_tri[:, 0]][:, [0, 1]].ravel(),
+                                           vertices[mask_tri[:, 1]][:, [1, 2]].ravel(),
+                                           vertices[mask_tri[:, 2]][:, [2, 0]].ravel(),
+                                           e0_nodes[mask_tri[:, 0]].ravel(),
+                                           e1_nodes[mask_tri[:, 1]].ravel(),
+                                           e2_nodes[mask_tri[:, 2]].ravel()])
+                return np.unique(bd_nodes)
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
     
@@ -859,8 +894,49 @@ class Mesh:
         
         return subdomains
 
-    # For optimization, split this function to several parts!
-    def decompose(self, n: int, overlap: int = 0, edge_weights = None): # Element-based partitioning
+    def _local_boundary_vertices(self, elements: np.ndarray) -> np.ndarray:
+        if self.dim == 1:
+            arr = elements.ravel()
+            vals, counts = np.unique(arr, return_counts = True)
+            return vals[counts == 1]
+        elif self.dim == 2:
+            tri_nodes = elements[:, :3]
+            edges = np.vstack([np.sort(tri_nodes[:, [0, 1]], axis=1),
+                                np.sort(tri_nodes[:, [1, 2]], axis=1),
+                                np.sort(tri_nodes[:, [2, 0]], axis=1)])
+            unique_edges, counts = np.unique(edges, axis = 0, return_counts = True)
+            return np.unique(unique_edges[counts == 1].ravel())
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+
+    def _extend_subdomains(self, subdomain_elements: list, vertex_to_elements: dict, elements: np.ndarray, overlap: int, copy: bool = True) -> list:
+        n = len(subdomain_elements)
+        nelements = elements.shape[0]
+        new_subdomains = [sd.copy() for sd in subdomain_elements] if copy else subdomain_elements
+        # Precompute boolean masks for each subdomain, where True indicates elements that belong to the subdomain
+        masks = []
+        for sd in new_subdomains:
+            mask = np.zeros(nelements, dtype = bool)
+            idxs = np.array([np.where((elements == e).all(axis=1))[0][0] for e in sd])
+            mask[idxs] = True
+            masks.append(mask)
+        # Iteratively extend each subdomain by one layer
+        for layer in range(overlap):
+            for j in range(n):
+                # Find boundary vertices of current subdomain
+                bvertices = self._local_boundary_vertices(new_subdomains[j])
+                # Collect candidate element indices that share boundary vertices
+                candidate_indices = np.unique(np.concatenate([vertex_to_elements[v] for v in bvertices]))
+                # Filter only new elements not already in subdomain
+                new_indices = candidate_indices[~masks[j][candidate_indices]]
+                # Add new elements to subdomain and update mask
+                if new_indices.size > 0:
+                    masks[j][new_indices] = True
+                    # Update subdomain elements
+                    new_subdomains[j] = elements[masks[j]]
+        return new_subdomains
+
+    def decompose(self, n: int, overlap: int = 0, version: int = 1, edge_weights = None): # Element-based partitioning
         """
         Decompose the mesh into `n` subdomains using PyMetis, with optional overlapping layers.
 
@@ -1062,221 +1138,78 @@ class Mesh:
         every triangle in the original mesh to its subdomain, so you can use it
         as a color array to show different subdomains in a plot. (non-overlapping version only)
         """
-        def local_boundary_nodes(elements, restricted: bool = True) -> set:
-            """
-            Extract boundary vertices from a collection of mesh elements.
-
-            A vertex is considered a boundary vertex if it belongs to an edge
-            (in 1D or 2D) that appears exactly once within the given collection
-            of elements.
-
-            The behavior depends on the spatial dimension and on the flag
-            ``restricted``.
-
-            Dimension-dependent definition
-            -------------------------------
-            - 1D (interval mesh):
-            Elements are intervals.
-            Boundary vertices are vertices that appear exactly once as endpoints
-            of all considered intervals.
-
-            - 2D (triangular mesh):
-            Elements are triangles.
-            Boundary vertices are vertices belonging to edges that occur exactly
-            once among all triangles.
-
-            Effect of ``restricted``
-            ------------------------
-            - ``restricted=True`` (default):
-            Only *topological vertices* are used.
-            - In 1D: only the first and last vertex of each element are considered.
-            - In 2D: only the first three entries of each element (triangle vertices)
-                are considered.
-            Higher-order nodes (edge or interior nodes) are ignored.
-
-            - ``restricted=False``:
-            Higher-order elements are taken into account.
-            - In 1D: all consecutive vertex pairs along each element are treated
-                as edges.
-            - In 2D: edges are reconstructed using both vertices and edge nodes,
-                and boundary detection is performed on these refined edges.
-            The returned set may therefore include higher-order edge nodes.
-
-            Parameters
-            ----------
-            elements : iterable of array-like
-                Collection of mesh elements.
-                - In 1D, each element must contain at least two vertex indices.
-                - In 2D, each element must contain at least three vertex indices.
-                For higher-order elements, additional entries are interpreted
-                according to the polynomial degree when ``restricted=False``.
-
-            restricted : bool, optional
-                If True, boundary detection is performed using only topological
-                vertices. If False, higher-order edge nodes are included.
-                Default is True.
-
-            Returns
-            -------
-            set
-                Set of vertex indices that lie on the boundary of the given
-                element collection.
-
-            Raises
-            ------
-            ValueError
-                If the mesh dimension is not supported (only 1D and 2D are allowed).
-            """
-            if restricted:
-                if self.dim == 1:
-                    counts = {}
-                    for interval in elements:
-                        a, b = interval[0], interval[-1]
-                        counts[a] = counts.get(a, 0) + 1
-                        counts[b] = counts.get(b, 0) + 1
-                    return set(v for v, c in counts.items() if c == 1)
-                elif self.dim == 2:
-                    bdedges = set()
-                    for triangle in elements:
-                        a, b, c = triangle[:3]
-                        triedges = [(min(a, b), max(a, b)), (min(b, c), max(b, c)), (min(c, a), max(c, a))]
-                        for edge in triedges:
-                            if edge in bdedges:
-                                bdedges.discard(edge)
-                            else:
-                                bdedges.add(edge)
-                    return set(it.chain.from_iterable(bdedges))
-                else:
-                    raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-            else:
-                bdedges = set()
-                if self.dim == 1:
-                    for element in elements:
-                        for edge in zip(element[:-1], element[1:]):
-                            if edge in bdedges:
-                                bdedges.discard(tuple(edge))
-                            else:
-                                bdedges.add(tuple(edge))
-                    return set(it.chain.from_iterable(bdedges))
-                elif self.dim == 2:
-                        for element in elements:
-                            a, b, c = element[:3]
-                            # extract edge nodes
-                            edge_ab = element[3 : 3 + self.degree - 1]
-                            edge_bc = element[3 + self.degree - 1 : 3 + 2*(self.degree - 1)]
-                            edge_ca = element[3 + 2*(self.degree - 1) : 3 + 3*(self.degree - 1)]
-                            # sequences along edges
-                            seq_ab = [a] + list(edge_ab) + [b]
-                            seq_bc = [b] + list(edge_bc) + [c]
-                            seq_ca = [c] + list(edge_ca) + [a]
-                            # helper to add consecutive pairs
-                            edges = set()
-                            def edge_pairs(seq):
-                                for i in range(len(seq)-1):
-                                    edges.add(tuple(sorted((seq[i], seq[i+1]))))
-                            for seq in [seq_ab, seq_bc, seq_ca]:
-                                edge_pairs(seq)
-                            
-                            for edge in edges:
-                                if edge in bdedges:
-                                    bdedges.discard(edge)
-                                else:
-                                    bdedges.add(edge)
-                        return set(it.chain.from_iterable(bdedges))
-                else:
-                    raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-                
-        def nodes(elements):
-            """
-            Return the unique node indices appearing in a collection of elements.
-
-            This function concatenates all element connectivity arrays and extracts
-            the set of unique node indices used by the given elements. The result
-            is returned as a sorted NumPy array.
-
-            Parameters
-            ----------
-            elements : iterable of array-like
-                Collection of mesh elements, where each element is an array-like
-                object containing node indices.
-
-            Returns
-            -------
-            numpy.ndarray
-                One-dimensional array of unique node indices appearing in
-                ``elements``, sorted in ascending order.
-
-            Notes
-            -----
-            This function does not distinguish between vertex nodes and
-            higher-order nodes; all node indices present in the element
-            connectivity are included.
-            """
-            return np.unique(np.concatenate(elements))
+        assert n > 0, "number of subdomains must be positive"
+        assert overlap >= 0, "overlap must be non-negative"
+        assert version in [1, 2], "version must be either 1 or 2"
 
         # Create adjacency list and partition using PyMetis
         adjdict = self.adjacency()
         adjlist = [sorted(list(adjdict[i])) for i in range(len(self.elements))]
         _, membership = pymetis.part_graph(nparts = n, adjacency = adjlist, eweights = edge_weights) # cuts can also be retrieved
 
-        # Assign elements to subdomains
-        subdomains_elements = {j: [] for j in range(1, n + 1)}
-        for tridx, part in enumerate(membership):
-            subdomains_elements[part + 1].append(self.elements[tridx])
+        # Extract elements for each subdomain based on the partitioning, note that membership is for non-overlapping partitioning, we will add overlap later
+        subdomain_elements = [self.elements[np.asarray(membership) == j] for j in range(n)]
 
-        # The below code can be optimized, but for clarity I keep it simple, see later if need optimization!
+        # Precompute vertex -> elements map
+        vertex_to_elements = self.vertex_to_element_map()
+
         # Extend each subdomain by one overlap layer by adding elements that share at least one boundary vertex with the current subdomain (vertex-based overlap).
-        for layer in range(overlap):
-            logger.debug(f"Adding overlapping layer {layer + 1}")
-            elements = self.elements
-            new_elements = {i: set(tuple(e) for e in subdomains_elements[i]) for i in range(1, n + 1)}
-            for sindex, selements in subdomains_elements.items():
-                bvertices = local_boundary_nodes(selements)
-                for bvertex in bvertices:
-                    for element in elements:
-                        if bvertex in element:
-                            element_tuple = tuple(element)
-                            if element_tuple not in new_elements[sindex]:
-                                selements.append(element)
-                                new_elements[sindex].add(element_tuple)
+        subdomain_elements_extended = self._extend_subdomains(subdomain_elements, vertex_to_elements, self.elements, overlap, copy = True if version == 2 else False)
 
-        boundary_nodes = dict() # domainID: {boundary vertices of the domain with domainID in domainID = 0 (whole mesh) global indexing}
-        boundary_nodes[0] = self.boundary_nodes() # whole boundary vertices
-        for k in range(1, n + 1):
-            boundary_nodes[k] = local_boundary_nodes(subdomains_elements[k], restricted = False)
+        # Construct submeshes and mapping between local and global node indices for each subdomain
+        submeshes = []
+        ltog, gtol = {}, {}
+        for j, elements in enumerate(subdomain_elements_extended, start = 1):
+            global_indices = np.unique(elements) # subdomain nodes in global indexing, sorted in ascending order
+            ltog[j] = global_indices # ltog[j][i] gives the global index of the i-th local node in subdomain j 
+            local_indices = np.full(self.vertices.shape[0], -1, dtype = int)
+            local_indices[global_indices] = np.arange(global_indices.size)
+            gtol[j] = local_indices # gtol[j][g] gives the local index of global node g in subdomain j, or -1 if g is not in subdomain j
+            vertices = self.vertices[global_indices] # extract the coordinates of the nodes that belong to the subdomain
+            elements = local_indices[elements] # relabel elements to local numbering
+            submesh = Mesh(vertices = vertices, elements = elements, dim = self.dim, domainID = j, options = self.options)
+            submesh.degree = self.degree
+            submesh.segments = None
+            submesh.segment_markers = None
+            submeshes.append(submesh)
 
-        # Build local meshes: extract subdomain DOFs, define global <--> local index mapping, and relabel elements to local numbering.
-        subdomains = []
-        global_to_local_mappings = {}
-        local_to_global_mappings = {}
-        for j in range(1, n + 1):
-            elements = subdomains_elements[j]
-            global_indices = nodes(elements) # This is exactly map from localdof to global dof s.t. local_indices = np.arange(0, len(global_indices), dtype=int)
-            mapping = {g: l for l, g in enumerate(global_indices)} # This is exactly map from global dof to localdof 
-            local_to_global_mappings[j] = global_indices 
-            global_to_local_mappings[j] = mapping
-            vertices = self.vertices[global_indices]
-            elements = np.array([[mapping[v] for v in element] for element in elements], dtype = int)
-            local_mesh = Mesh(vertices = vertices, elements = elements, dim = self.dim, domainID = j, options = self.options)
-            local_mesh.degree = self.degree
-            subdomains.append(local_mesh)
+        # Compute boundary nodes for all subdomains and the global mesh (`nodes` used here means all nodes including edge nodes for higher degree elements, not just corner vertices)
+        boundary_nodes = dict()
+        boundary_nodes[0] = self.boundary_nodes() # whole boundary nodes in global indexing
+        for k, submesh in enumerate(submeshes, start = 1):
+            boundary_nodes[k] = ltog[k][submesh.boundary_nodes()] # boundary nodes of subdomain k in global indexing
 
-        subdomain_maps = dict()
+        # Construct the mapping for each subdomain, which maps each local node index i in subdomain s to a list of tuples (t, lt) where t is either 0 or another subdomain index, and lt is the corresponding local node index in subdomain t. 
+        subdomain_maps = {}
+        subdomain_nodes = [np.unique(sdomain) for sdomain in subdomain_elements] # list of arrays of global node indices for each subdomain (with overlap if version 1, without overlap if version 2)
         for s in range(1, n + 1):
             maps = defaultdict(list)
-            wintersection = set(boundary_nodes[0]) & boundary_nodes[s]
-            for w in wintersection: # This is for the boundary nodes of the subdomain that shares with whole boundary nodes
-                maps[global_to_local_mappings[s][w]].append((0, w))
+            # Find the exterior boundary nodes of the subdomain in global indexing (see the paper for the definition of exterior boundary)
+            exterior_boundary_g = np.intersect1d(boundary_nodes[0], boundary_nodes[s], assume_unique=True)
+            # Find the exterior boundary nodes of the subdomain in local indexing
+            exterior_boundary = gtol[s][exterior_boundary_g]
+            # Define the map: i: [(0, g)] for each exterior boundary node i in local indexing, where g is the corresponding global node index, and 0 indicates that this node is on the global boundary (not an interface node) 
+            for loc, g in zip(exterior_boundary, exterior_boundary_g):
+                maps[loc].append((0, g))
+            # Note: `interface_boundary` gives different results for version 1 and version 2, because in version 1 we modify 
+            # the original `subdomain_elements` list in-place when we add new elements to the subdomain, while in version 2 
+            # we create a new list of extended subdomains, so the original `subdomain_elements` list remains unchanged and 
+            # does not contain the new elements added for overlap. 
             for t in range(1, n + 1):
-                if t == s:
+                if t == s: # skip the same subdomain, we only want to find interface nodes between different subdomains
                     continue
-                aintersection = boundary_nodes[s] & set(nodes(subdomains_elements[t]))
-                for a in aintersection:
-                    maps[global_to_local_mappings[s][a]].append((t, global_to_local_mappings[t][a]))
+                # Find the interface boundary nodes between subdomain s and t in global indexing
+                interface_boundary = np.intersect1d(boundary_nodes[s], subdomain_nodes[t-1], assume_unique=True)
+                # Get corresponding local indices in subdomain s and t
+                local_s = gtol[s][interface_boundary]   # local indices in subdomain s
+                local_t = gtol[t][interface_boundary]   # local indices in subdomain t
+                # Define the map: i: [(t, lt)] for each interface boundary node i in local indexing of subdomain s, where lt is the corresponding local node index in subdomain t, and t indicates that this node is on the interface with subdomain t
+                for ls, lt, g in zip(local_s, local_t, interface_boundary):
+                    maps[ls].append((t, lt))
             subdomain_maps[s] = maps
 
         # Note that returned `membership` array is for non-overlapping domain decomposition!
-        return subdomains, local_to_global_mappings, global_to_local_mappings, subdomain_maps, np.array(membership, dtype = int)
+        return submeshes, ltog, gtol, subdomain_maps, np.array(membership, dtype = int)
 
     def is_in_interval(self, point: float, interval: list | np.ndarray, tol: float = 1e-12) -> bool:
         """

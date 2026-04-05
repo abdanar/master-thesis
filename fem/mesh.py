@@ -842,54 +842,6 @@ class Mesh:
         """
         element = np.asarray(element)
         return bool(np.isin(element, self.boundary_nodes()).any())
-    
-    def interval_decompose(self, n: int, overlap: int = 0):
-        """
-        Split a 1D grid into overlapping subdomains.
-
-        Each subdomain contains its local chunk plus `overlap` points
-        from each neighboring subdomain. Consecutive subdomains share
-        exactly `overlap + 1` grid points.
-
-        Parameters
-        ----------
-        n : int
-            Number of subdomains to split the 1D grid into.
-        overlap : int
-            Number of additional points shared with each neighboring subdomain.
-
-        Returns
-        -------
-        dict of int -> numpy.ndarray
-            Dictionary mapping subdomain index (0-based) to its array of
-            grid points, including the overlap regions.
-        """
-        
-        x = np.sort(self.vertices)
-        nx = x.shape[0]
-        
-        # Base size of each non-overlapping part
-        base = nx//n  # number of intervals
-        remainder = nx% n
-        
-        # Determine number of local points for non-overlapping part
-        sizes = []
-        for i in range(n):
-            sz = base + (1 if i < remainder else 0)
-            sizes.append(sz)
-    
-        subdomains = {}
-        start = 0
-        for j, subsize in enumerate(sizes):
-            if j == 0:
-                subdomains[j + 1] = x[0: subsize + overlap]
-            elif j == n - 1:
-                subdomains[j + 1] = x[-(subsize + overlap):]
-            else:
-                subdomains[j + 1] = x[start - overlap: start + subsize + overlap]
-            start += subsize
-        
-        return subdomains
 
     def _local_boundary_vertices(self, elements: np.ndarray) -> np.ndarray:
         if self.dim == 1:
@@ -933,207 +885,137 @@ class Mesh:
                     new_subdomains[j] = elements[masks[j]]
         return new_subdomains
 
-    def decompose(self, n: int, overlap: int = 0, version: int = 1, edge_weights = None): # Element-based partitioning
+    def decompose(self, n: int, overlap: int = 1, version: int = 1, edge_weights = None): # Element-based partitioning
         """
-        Decompose the mesh into `n` subdomains using PyMetis, with optional overlapping layers.
+        Decompose the mesh into `n` subdomains with overlapping layers.
 
         This method performs an **element-based domain decomposition** for 1D or 2D meshes. 
-        Each subdomain is returned as a separate `Mesh` object with its own local vertex numbering,
-        elements, and a mapping to global mesh vertices. Partitioning is performed using PyMetis's 
-        graph partitioning algorithm based on triangle adjacency. Each subdomain has:
-
-        Partitioning steps:
-        1. Construct the element adjacency graph (edges for 2D triangles, intervals for 1D elements).
-        2. Use PyMetis to partition elements into `n` subdomains.
-        3. Optionally add `overlap` layers: neighboring elements sharing at least one boundary vertex
-        are added to expand each subdomain.
-        4. Construct local meshes with:
-            - Local vertex arrays (subset of global vertices used in the subdomain)
-            - Triangles/intervals relabeled to local vertex indices
-            - `domainID` set to the subdomain index (1 to n)
-
-        Overlapping layers (controlled by `overlap`) add neighboring elements around
-        the subdomain boundary. Local-to-global mapping is provided to map local
-        subdomain vertices back to the original global mesh vertices.
-
-        Important notes:
-        -----------------
-        - Whole domain ID is 0, subdomains are numbered 1 to n.
-        - Each subdomain Mesh object has:
-            - `vertices`: local vertex coordinates used in that subdomain.
-            - `elements`: local elements with vertex indices relabeled to local numbering.
-            - `domainID`: set to the subdomain index (1 to n).
-        - The `local_to_global_mappings` dictionary maps each subdomain ID to the
-          corresponding global vertex indices used in that subdomain.
-        - Partitioning is based on element adjacency (element-based partitioning).
-        - Overlapping is done by adding neighboring elements sharing boundary vertices (vertex-based overlapping).
+        Each subdomain is returned as a separate `Mesh` object with its own local node numbering,
+        elements. Partitioning is performed using PyMetis's graph partitioning algorithm based 
+        on element adjacency. Obtained non-overlapping subdomains via PyMetis can be further extended 
+        with overlapping layers by adding neighboring elements that share boundary vertices. This is
+        done iteratively, where each layer adds elements that share at least one boundary vertex 
+        with the current subdomain. 
 
         Parameters
         ----------
         n : int
             Number of desired subdomains.
         overlap : int, optional
-            Number of overlapping layers to add around subdomain boundaries. Default is 0.
-            Each layer adds neighboring elements sharing at least one boundary vertex.
+            Number of layers to extend each subdomain with neighboring elements. Default is 1.
+        version : int, optional
+            Specifies how the interface boundary is defined. Available options:
+            - 1 (default):
+                The interface boundary is defined by
+                    Γ_{jl} = Γ_j ∩ Ω_l,
+                where Ω_l denotes the extended subdomain.
+            - 2:
+                The interface boundary is defined by
+                    Γ_{jl} = Γ_j ∩ Ω_l,
+                where Ω_l denotes the original (non-overlapping) subdomain
+                before extension.
         edge_weights : list of int or None, optional
             Weights for PyMetis graph partitioning. Default is None.
 
         Returns
         -------
-        subdomains : list of Mesh
+        submeshes : list of Mesh
             List of `Mesh` objects corresponding to each subdomain.
-        local_to_global_mappings : dict
-            Mapping from subdomain ID -> global vertex indices used in that subdomain.
-            {subdomain ID: np.array([sorted global indices for whole domain correspoding to the subdomain ID])}
+        ltog : dict[int, np.ndarray]
+            Dictionary mapping each subdomain ID to the corresponding global nodes in that subdomain.
+            To access the global index of a local node `i` in subdomain `s`, use `ltog[s][i]`.
+        gtol : dict[int, np.ndarray]
+            Dictionary mapping each subdomain ID to the corresponding local nodes in that subdomain.
+            To access the local index of a global node `g` in subdomain `s`, use `gtol[s][g]`. 
+            If a global node `g` does not belong to subdomain `s`, then `gtol[s][g]` will be -1.
         subdomain_maps : dict
-            Mapping of boundary vertices across subdomains and the whole domain.
+            Dictionary mapping each subdomain ID to a dictionary of local boundary node mappings.
+            The structure for subdomain_maps[s] is as follows:
+            subdomain_maps[s] = {
+                local_boundary_index_in_s: [
+                    (0, global_index),         # if it belongs to the whole domain boundary
+                    (t, local_index_in_t),     # if it is shared with another subdomain t
+                    ...
+                ],
+                ...
+            }
+        membership : np.ndarray of int, shape (n_elements,)
+            Array mapping each triangle in the original mesh to its subdomain index.  
 
-            For each subdomain `s` (with ID `s = 1, ..., n`), this dictionary stores
-            a mapping from *local boundary vertex indices* in subdomain `s`
-            to the corresponding location of the same vertex in another domain
-            (either another subdomain or the whole domain).
+        Examples
+        --------
+        The following examples illustrate the structure of the `subdomain_maps` output for both 1D and 2D meshes for version 1.
 
-            Structure
-            ---------
-            subdomain_maps[s] : dict
-
-                Keys
-                ----
-                local_index_s : int
-                    Local index of a boundary vertex in subdomain `s`.
-
-                Values
-                ------
-                (t, index_t) : tuple of int
-                    - `t = 0` indicates that the vertex lies on the boundary of
-                      the whole (non-decomposed) domain.
-                    - `t > 0` indicates another subdomain ID sharing the same vertex.
-                    - `index_t` is the local index of the vertex in domain `t`
-                      (or the global vertex index if `t = 0`).
-
-            Interpretation
-            --------------
-            - Each entry represents a **single correspondence** for a boundary
-              vertex of subdomain `s`.
-            - If a boundary vertex belongs to the whole domain boundary,
-              it is mapped to `(0, global_index)`.
-            - If it is shared with another subdomain `t`, it is mapped to
-              `(t, local_index_in_t)`.
-            - If a vertex is shared with multiple subdomains, the *last processed*
-              subdomain overwrites earlier entries.
-
-            Notes
-            -----
-            - Only boundary vertices of subdomains are included.
-            - Boundary detection for subdomains uses `restricted=False`, so
-              higher-order edge nodes may appear.
-            - The mapping is **not symmetric**: information is stored independently
-              for each subdomain.
-            - This structure is suitable for:
-                - subdomain coupling,
-                - interface communication,
-                - boundary-condition transfer.
-
-            1D Example
-            ----------
-            Suppose the domain [0, 1] is divided into 3 subdomains:
-
-            Whole domain nodes: [0, 0.25, 0.5, 0.75, 1.0]
-
-            Subdomain 1 (ID=1): nodes [0, 0.25, 0.5]       # local indices: 0,1,2
-            Subdomain 2 (ID=2): nodes [0.25, 0.5, 0.75]    # local indices: 0,1,2
-            Subdomain 3 (ID=3): nodes [0.5, 0.75, 1.0]     # local indices: 0,1,2
-
-            Boundary nodes of subdomains (local indices):
-
-            - Subdomain 1: [0, 0.5] → local indices [0,2]
-            - Subdomain 2: [0.25, 0.75] → local indices [0,2]
-            - Subdomain 3: [0.5, 1.0] → local indices [0,2]
-
-            Whole domain boundary nodes: [0, 1] → global indices [0, 4]
-
-            Resulting mapping allmaps (local indices):
-
+        1D example
+        ~~~~~~~~~~
+        Suppose the interval [0, 1], where the global nodes are [0, 0.25, 0.5, 0.75, 1.0], is divided into 3 subdomains:
+            Subdomain 1 (ID=1):
+                nodes [0, 0.25, 0.5]        (local indices: 0, 1, 2)
+            Subdomain 2 (ID=2):
+                nodes [0.25, 0.5, 0.75]     (local indices: 0, 1, 2)
+            Subdomain 3 (ID=3):
+                nodes [0.5, 0.75, 1.0]      (local indices: 0, 1, 2)
+        Boundary nodes (local indices):
+            Subdomain 1:
+                [0, 0.5]  → [0, 2]
+            Subdomain 2:
+                [0.25, 0.75] → [0, 2]
+            Subdomain 3:
+                [0.5, 1.0] → [0, 2]
+        Whole domain boundary nodes:
+            [0, 1.0] → global indices [0, 4]
+        Resulting mapping ``allmaps`` (local indices):
             allmaps = {
                 1: {
-                    0: [(0, 0)],         # node 0 (local 0) is boundary of whole domain (global 0)
-                    2: [(2, 0), (3, 0)]  # node 0.5 (local 2) shared with subdomain 2 (local 0) and 3 (local 0)
+                    0: [(0, 0)],
+                    2: [(2, 0), (3, 0)]
                 },
                 2: {
-                    0: [(1, 1)],         # node 0.25 (local 0) shared with subdomain 1 (local 1)
-                    2: [(3, 1)]          # node 0.75 (local 2) shared with subdomain 3 (local 1)
+                    0: [(1, 1)],
+                    2: [(3, 1)]
                 },
                 3: {
-                    0: [(1, 2), (2, 1)], # node 0.5 (local 0) shared with subdomain 1 (local 2) and 2 (local 1)
-                    2: [(0, 4)]          # node 1.0 (local 2) is boundary of whole domain (global 4)
+                    0: [(1, 2), (2, 1)],
+                    2: [(0, 4)]
                 }
             }
-            
-            2D Example
-            ----------
-            Suppose the domain is decomposed into subdomains with IDs 1, 2, and 3:
 
-            - A boundary vertex of subdomain 1 at local index 5 is shared with subdomain 2
-            at index 3 and subdomain 3 at index 7, and is also a boundary node of the whole domain
-            at index 10:
+        2D example
+        ~~~~~~~~~~
+        Consider subdomains with IDs 1, 2, and 3.
 
-                allmaps[1][5] = [
-                    (0, 10),  # belongs to the whole domain
-                    (2, 3),
-                    (3, 7)
-                ]
+        - A boundary node of subdomain 1 at local index 5 is shared with:
+        subdomain 2 (local index 3), subdomain 3 (local index 7),
+        and also lies on the global boundary (index 10):
 
-            - Another boundary vertex of subdomain 1 at local index 8 is shared only with
-            subdomain 3 at index 4 and also belongs to the whole domain at index 12:
+            allmaps[1][5] = [
+                (0, 10),
+                (2, 3),
+                (3, 7)
+            ]
 
-                allmaps[1][8] = [
-                    (0, 12),
-                    (3, 4)
-                ]
+        - A boundary node of subdomain 1 at local index 8 is shared with
+        subdomain 3 (local index 4) and lies on the global boundary (index 12):
 
-            - A boundary vertex that appears **only on the whole domain** and not in any subdomain:
+            allmaps[1][8] = [
+                (0, 12),
+                (3, 4)
+            ]
 
-                allmaps[subdomainID_i][boundary_index_in_i] = [
-                    (0, g_index)
-                ]
-        membership : np.ndarray of int
-            Array mapping each triangle in the original mesh to its subdomain index.
-            (length equals number of elements in the original mesh).
+        - A boundary node of subdomain i at local index k that belongs only to 
+        the global boundary:
 
-        Example
-        -------
-        >>> mesh = Mesh(vertices=vertices, elements=elements)
-        >>> subdomains, _, _, membership = mesh.decompose(n=4, edge_weights=None)
-        >>> len(subdomains)  # 4 subdomain Mesh objects
-        4
-        >>> subdomains[0].domainID  # domain ID of first subdomain
-        0
-        >>> len(subdomains[0].elements)  # number of triangles in subdomain 0
-        15
-        >>> membership[:5]  # first 5 triangles and their subdomain assignment
-        [0, 0, 1, 2, 1]
-        >>> # Example of using membership for plotting colors
-        >>> import matplotlib.pyplot as plt
-        >>> import matplotlib.tri as mtri
-        >>> tri = mtri.Triangulation(vertices[:,0], vertices[:,1], elements)
-        >>> plt.tripcolor(tri, facecolors=membership, cmap='tab10')
-        >>> plt.show()
-
+            allmaps[i][k] = [
+                (0, g_index)
+            ]
+        
         Notes
         -----
-        - Triangles in each subdomain use **local vertex numbering**:
-        For example, if a subdomain uses global vertex indices [2, 3, 6, 8], then
-        local indices 0,1,2,3 correspond to global vertices 2,3,6,8.
-        - Overlapping layers expand the subdomain by including neighboring triangles
-        sharing boundary vertices.
-        - Subdomain numbering **starts from 1**, i.e., subdomain IDs are 1,2,...,n.
-        - ID 0 is reserved to indicate the **whole domain** (useful for visualization
-            and global assembly).  
-        - The `local_to_global_mappings` dict allows reconstruction of a global solution
-        from subdomain solutions.
-        - The `membership` list is important for plotting and visualization: it maps
-        every triangle in the original mesh to its subdomain, so you can use it
-        as a color array to show different subdomains in a plot. (non-overlapping version only)
+        - Whole domain ID is 0, subdomains are numbered 1 to n.
+        - Local indexing for each subdomain starts from 0, and follows the order of ordered unique 
+          nodes in global indexing within that subdomain.
+        - Partitioning is based on element adjacency (element-based partitioning).
+        - Overlapping is done by adding neighboring elements sharing boundary vertices (vertex-based overlapping).   
         """
         assert n > 0, "number of subdomains must be positive"
         assert overlap >= 0, "overlap must be non-negative"

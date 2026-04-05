@@ -78,7 +78,7 @@ class SolutionVisualizer:
         triang = mtri.Triangulation(x, y, elements)
 
         # Plot filled contour
-        plt.figure(figsize=(6,5))
+        plt.figure(figsize = figsize, dpi = dpi)
         plt.tricontourf(triang, self.u.ravel(), levels = levels, cmap = cmap)
         plt.triplot(triang, color = 'k', linewidth = 0.5, alpha = 0.3)
         plt.colorbar(label = 'Solution u')

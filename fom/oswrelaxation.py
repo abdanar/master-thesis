@@ -9,7 +9,7 @@ from utils.errornorms import ErrorNorms
 logger = setup_logger(__name__, level = 'info')
 
 class OSWRProblem():
-    def __init__(self, femspace: FEMSpace, t0: float, T: float, f: Callable, g: Callable, h: Callable, n: int, overlap: int):
+    def __init__(self, femspace: FEMSpace, t0: float, T: float, f: Callable, g: Callable, h: Callable, n: int, overlap: int, version: int = 1):
         """
         Initialize an Overlapping Schwarz Waveform Relaxation (OSWR) problem for solving the heat equation.
 
@@ -32,6 +32,8 @@ class OSWRProblem():
             Number of subdomains to decompose the mesh into.
         overlap : int
             Number of layers added to a non-overlapping decomposition to create overlap.
+        version : int, optional
+            Version of the decomposition algorithm to use (default is 1).
         """
         self.femspace = femspace
         self.t0 = t0
@@ -44,8 +46,8 @@ class OSWRProblem():
         self.nspace = self.femspace.nnodes
         self.verts = self.femspace.mesh.vertices
         self.boundary_nodes = self.femspace.boundary_nodes
-        logger.info(f"[Schwarz Waveform Relaxation] Decomposing mesh into {n} subdomains with overlap of {overlap} layers...")
-        self.subdomains, self.ltog, self.gtol, self.maps, _ = self.femspace.mesh.decompose(n = n, overlap = overlap)
+        logger.info(f"[Schwarz Waveform Relaxation] Decomposing mesh into {n} subdomains with overlap of {overlap} layers using version {version} ...")
+        self.subdomains, self.ltog, self.gtol, self.maps, _ = self.femspace.mesh.decompose(n = n, overlap = overlap, version = version)
         logger.info(f"[Schwarz Waveform Relaxation] Mesh decomposition completed. Number of subdomains: {len(self.subdomains)}")
         if self.femspace.dim == 1:
             self.icond = self.h(self.verts)

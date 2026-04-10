@@ -59,13 +59,13 @@ class LocalIntegrator:
             Compute the element stiffness matrix:
                 - 1D: K[i,j] = ∫_I D(x) dφ_i/dx dφ_j/dx dx
                 - 2D: K[i,j] = ∫_T (∇φ_i)^T A ∇φ_j dx
-        local_convection_matrix(convection)
+        local_convection_matrix
             Compute the element convection matrix:
                 - 1D: C[i,j] = ∫_I b(x) dφ_j/dx φ_i dx
                 - 2D: C[i,j] = ∫_T (b · ∇φ_j) φ_i dx
-        local_mass_matrix(reaction)
-            Compute the element mass/reaction matrix:
-                - 1D/2D: M[i,j] = ∫_I/∫_T c(x) φ_i φ_j dx
+        local_reaction_matrix
+            Compute the element reaction matrix:
+                - 1D/2D: R[i,j] = ∫_I/∫_T c(x) φ_i φ_j dx
         local_load_vector(func)
             Compute the element load vector:
                 - 1D/2D: F[i] = ∫_I/∫_T f(x) φ_i dx
@@ -272,14 +272,14 @@ class LocalIntegrator:
                 raise NotImplementedError(f"local_convection_matrix not implemented for dim={self.element.ref_element.dim}")
         return C
 
-    def local_mass_matrix(self, reaction: Callable) -> np.ndarray:
+    def local_reaction_matrix(self, reaction: Callable) -> np.ndarray:
         """
-        Compute the element-local mass (reaction) matrix for 1D or 2D Lagrange elements.
+        Compute the element-local reaction matrix for 1D or 2D Lagrange elements.
 
-        The local mass matrix M is defined as:
+        The local reaction matrix R is defined as:
 
-            - 1D: M[i, j] = ∫_I c(x) * φ_i(x) * φ_j(x) dx
-            - 2D: M[i, j] = ∫_T c(x, y) * φ_i(x, y) * φ_j(x, y) dx dy
+            - 1D: R[i, j] = ∫_I c(x) * φ_i(x) * φ_j(x) dx
+            - 2D: R[i, j] = ∫_T c(x, y) * φ_i(x, y) * φ_j(x, y) dx dy
 
         where:
             - φ_i, φ_j are the element's shape functions,
@@ -299,8 +299,8 @@ class LocalIntegrator:
 
         Returns
         -------
-        M : np.ndarray, shape (nbasis, nbasis)
-            The element-local mass matrix, where nbasis is the number of basis
+        R : np.ndarray, shape (nbasis, nbasis)
+            The element-local reaction matrix, where nbasis is the number of basis
             functions associated with the element.
 
         Notes
@@ -311,14 +311,14 @@ class LocalIntegrator:
         - The resulting matrix is symmetric if c is scalar-valued and positive.
         - Supports 1D interval elements and 2D triangular elements.
         """
-        logger.debug(f"Computing local mass matrix")
+        logger.debug(f"Computing local reaction matrix")
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
 
-        # initialize local mass matrix
+        # initialize local reaction matrix
         nbasis = self.element.ref_element.nbasis
-        M = np.zeros((nbasis, nbasis))
+        R = np.zeros((nbasis, nbasis))
 
         # loop over all quadrature points
         for node, weight in zip(self.ref_pts, self.weights):
@@ -335,13 +335,13 @@ class LocalIntegrator:
             elif self.element.ref_element.dim == 2:
                 react_val = reaction(*phys_point)         # 2D: phys_point is array-like (x, y)
             else:
-                raise NotImplementedError(f"local_mass_matrix not implemented for dim={self.element.ref_element.dim}")
+                raise NotImplementedError(f"local_reaction_matrix not implemented for dim={self.element.ref_element.dim}")
 
             # Loop over all pairs of basis functions
             for i in range(nbasis):
                 for j in range(nbasis):
-                    M[i, j] += weight * detJ * react_val * phi_vals[i] * phi_vals[j]
-        return M
+                    R[i, j] += weight * detJ * react_val * phi_vals[i] * phi_vals[j]
+        return R
           
     def local_load_vector(self, func: Callable) -> np.ndarray:
         """

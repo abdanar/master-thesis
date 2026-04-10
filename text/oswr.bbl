@@ -1,0 +1,29 @@
+\begin{thebibliography}{1}
+
+\bibitem{AdamsFournier2003}
+Robert~A. Adams and John J.~F. Fournier.
+\newblock {\em Sobolev Spaces}.
+\newblock Pure and Applied Mathematics, Vol. 140. Academic Press, Amsterdam, Boston, London, New York, 2nd edition, 2003.
+
+\bibitem{Bebendorf2003Poincare}
+Mario Bebendorf.
+\newblock A note on the poincar{\'e} inequality for convex domains.
+\newblock {\em Zeitschrift f{\"u}r Analysis und ihre Anwendungen}, 22(4):751--756, 2003.
+
+\bibitem{BrennerScott2008}
+Susanne~C. Brenner and L.~Ridgway Scott.
+\newblock {\em The Mathematical Theory of Finite Element Methods}, volume~15 of {\em Texts in Applied Mathematics}.
+\newblock Springer, New York, NY, USA, 3 edition, 2008.
+
+\bibitem{DryjaWidlund1987}
+Maksymilian Dryja and Olof~B. Widlund.
+\newblock An additive variant of the schwarz alternating method for the case of many subregions.
+\newblock Technical Report Technical Report 339, also Ultracomputer Note 131, Department of Computer Science, Courant Institute of Mathematical Sciences, New York University, 1987.
+\newblock Technical Report.
+
+\bibitem{GanderZhao2002}
+Martin~J. Gander and Hongkai Zhao.
+\newblock Overlapping schwarz waveform relaxation for the heat equation in $n$ dimensions.
+\newblock {\em BIT Numerical Mathematics}, 42(4):779--795, 2002.
+
+\end{thebibliography}

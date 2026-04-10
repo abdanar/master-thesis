@@ -3,15 +3,16 @@ import numpy as np
 from fem.femspace import FEMSpace
 from fem.linearsolver import DirectSolver, LinearSolver
 from fom.heat import HeatProblem
+from rom.rheat import ReducedHeatProblem
 from utils.errornorms import ErrorNorms
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__, level = 'info')
 
-class OSWRProblem():
+class ROSWRProblem():
     def __init__(self, femspace: FEMSpace, t0: float, T: float, f: Callable, g: Callable, h: Callable, n: int, overlap: int, version: int = 1):
         """
-        Initialize an Overlapping Schwarz Waveform Relaxation (OSWR) problem for solving the heat equation.
+        Initialize a Reduced Overlapping Schwarz Waveform Relaxation (ROSWR) problem for solving the heat equation.
 
         Parameters
         ----------
@@ -46,9 +47,9 @@ class OSWRProblem():
         self.nspace = self.femspace.nnodes
         self.verts = self.femspace.mesh.vertices
         self.boundary_nodes = self.femspace.boundary_nodes
-        logger.info(f"[Schwarz Waveform Relaxation] Decomposing mesh into {n} subdomains with overlap of {overlap} layers using version {version} ...")
+        logger.info(f"[Reduced Schwarz Waveform Relaxation] Decomposing mesh into {n} subdomains with overlap of {overlap} layers using version {version} ...")
         self.subdomains, self.ltog, self.gtol, self.maps, _ = self.femspace.mesh.decompose(n = n, overlap = overlap, version = version)
-        logger.info(f"[Schwarz Waveform Relaxation] Mesh decomposition completed. Number of subdomains: {len(self.subdomains)}")
+        logger.info(f"[Reduced Schwarz Waveform Relaxation] Mesh decomposition completed. Number of subdomains: {len(self.subdomains)}")
         if self.femspace.dim == 1:
             self.icond = self.h(self.verts)
         else:
@@ -362,16 +363,18 @@ class OSWRProblem():
             idata[subdomain.domainID] = data
         return idata
 
-    def solve(self, time_grid: np.ndarray, theta: float = 0.5, lift: str = 'nodal', method: Literal['AS', 'RAS'] = 'RAS', omega: float = 1.0, 
+    def solve(self, projs: dict[int, np.ndarray], time_grid: np.ndarray, theta: float = 0.5, lift: str = 'nodal', method: Literal['AS', 'RAS'] = 'RAS', omega: float = 1.0, 
               solver: LinearSolver = DirectSolver(), maxiter: int = 100, tol: float = 1e-3, criterion: Callable[[dict[int, np.ndarray], dict[int, np.ndarray]], float] = boundary_criterion,
               history: bool = False, norm: str = 'l2', uh: Optional[np.ndarray] = None, exact: Optional[Callable] = None) -> np.ndarray:
         """
-        Solve the Heat problem using the Overlapping Schwarz Waveform Relaxation (OSWR) method.
+        Solve the Reduced Overlapping Schwarz Waveform Relaxation (ROSWR) problem using the specified parameters and return the computed global solution.
 
         Parameters
         ----------
+        projs: dict[int, np.ndarray]
+            A dictionary mapping subdomain IDs to their respective projection matrices for the reduced-order model. 
         time_grid : np.ndarray
-            Array of time points, including the initial condition at t0, so the time points are t0, t1, ..., t_{ntime-1} with t_{ntime-1} = T.
+            An array containing the time points for the simulation.
         theta : float, default = 0.5
             Parameter for the theta time-stepping scheme. It determines the weighting between explicit and implicit contributions.
         lift : str
@@ -416,7 +419,7 @@ class OSWRProblem():
             raise ValueError("Error history cannot be stored because both uh and exact are None. At least one of them must be provided for error analysis.")
 
         logger.info("="*80)
-        logger.info("[Schwarz Waveform Relaxation] Starting solver")
+        logger.info("[Reduced Schwarz Waveform Relaxation] Starting solver")
         logger.info(
             f"dim: {self.femspace.dim}D | "
             f"subdomains: {len(self.subdomains)} | "
@@ -426,6 +429,9 @@ class OSWRProblem():
             f"tol: {tol:.2e}")
         logger.info("="*80)
 
+        # Number of time steps, including the initial condition at t0, so the time points are t0, t1, ..., t_{ntime-1} with t_{ntime-1} = T.     
+        ntime = len(time_grid)
+
         # Precompute Dirichlet boundary values for all time steps at the boundary nodes
         if self.femspace.dim == 1:
             self.dirichlet_values = self.g(self.verts[self.boundary_nodes][:, None], time_grid[None, :])
@@ -433,15 +439,12 @@ class OSWRProblem():
             self.dirichlet_values = self.g(self.verts[self.boundary_nodes][:, 0][:, None], self.verts[self.boundary_nodes][:, 1][:, None], time_grid[None, :])
         else:
             raise ValueError(f"Unsupported dimension {self.femspace.dim}. Only 1D and 2D are supported.")
-        
-        # The number of time steps, including the initial condition at t0, so the time points are t0, t1, ..., t_{ntime-1} with t_{ntime-1} = T.
-        ntime = len(time_grid)
 
         # Initialize local solution data for each subdomain, which will be updated iteratively.
         data = self.initial_data(ntime)
 
         # Create Heat problems for each subdomain
-        subproblems = {}
+        subroms = {}
 
         domain = self.femspace.domain
         space = self.femspace.space
@@ -450,19 +453,20 @@ class OSWRProblem():
         for subdomain in self.subdomains:
             subfem = FEMSpace(mesh = subdomain, domain = domain, space = space, degree = degree)
             g_local = self.construct_dirichlet_bc(subfemspace = subfem, data = data, method = method, domainID = subdomain.domainID)
-            subproblems[subdomain.domainID] = HeatProblem(femspace = subfem, t0 = self.t0, T = self.T, f = self.f, g = g_local, h = self.h)
+            subfoms = HeatProblem(femspace = subfem, t0 = self.t0, T = self.T, f = self.f, g = g_local, h = self.h)
+            subroms[subdomain.domainID] = ReducedHeatProblem(heat_problem = subfoms, V = projs[subdomain.domainID])
 
-        # Overlapping Schwarz Waveform Relaxation iterations
+        # Reduced Schwarz Waveform Relaxation iteration
         error: float = float("inf")
         for iter in range(maxiter):
             new_data = {}
             for subdomain in self.subdomains:
                 domainid = subdomain.domainID
-                dirichlet_bc = self.construct_dirichlet_bc(subfemspace = subproblems[domainid].femspace, data = data, method = method, domainID = domainid) if iter > 0 else None
-                new_data[domainid] = subproblems[domainid].solve(time_grid = time_grid, theta = theta, lift = lift, solver = solver, reuse_load = True, g_new = dirichlet_bc)
+                dirichlet_bc = self.construct_dirichlet_bc(subfemspace = subroms[domainid].femspace, data = data, method = method, domainID = domainid) if iter > 0 else None
+                new_data[domainid] = subroms[domainid].solve(time_grid = time_grid, theta = theta, lift = lift, solver = solver, reuse_load = True, g_new = dirichlet_bc, reconstruct = True)
 
             error = criterion(data, new_data)
-            logger.info(f"\033[92m[Schwarz Waveform Relaxation]\033[0m Iteration \033[93m{iter + 1}\033[0m: error = \033[91m{error:.6e}\033[0m")
+            logger.info(f"\033[92m[Reduced Schwarz Waveform Relaxation]\033[0m Iteration \033[93m{iter + 1}\033[0m: error = \033[91m{error:.6e}\033[0m")
 
             if omega == 1.0:
                 data = new_data
@@ -471,16 +475,16 @@ class OSWRProblem():
                     data[i] = (1 - omega) * data[i] + omega * new_data[i]
 
             if history:
-                self.store_history(subproblems = subproblems, ntime = ntime, time_grid = time_grid, method = method, oswr_data = data, uh = uh, exact = exact, norm = norm)
+                self.store_history(subproblems = subroms, ntime = ntime, time_grid = time_grid, method = method, oswr_data = data, uh = uh, exact = exact, norm = norm)
 
             if error < tol:
-                logger.info(f"\033[92m[Schwarz Waveform Relaxation]\033[0m Converged after \033[93m{iter + 1}\033[0m iterations with error = \033[91m{error:.6e}\033[0m")
+                logger.info(f"\033[92m[Reduced Schwarz Waveform Relaxation]\033[0m Converged after \033[93m{iter + 1}\033[0m iterations with error = \033[91m{error:.6e}\033[0m")
                 logger.info("="*80)
                 break
         else:
-            logger.warning(f"\033[92m[Schwarz Waveform Relaxation]\033[0m Reached max iterations ({maxiter}) with error = \033[91m{error:.6e}\033[0m")
+            logger.warning(f"\033[92m[Reduced Schwarz Waveform Relaxation]\033[0m Reached max iterations ({maxiter}) with error = \033[91m{error:.6e}\033[0m")
         
-        logger.info("\033[92m[Schwarz Waveform Relaxation]\033[0m Solver finished successfully.")
+        logger.info("\033[92m[Reduced Schwarz Waveform Relaxation]\033[0m Solver finished successfully.")
         logger.info("="*80)
 
         return self.combine(ntime = ntime, method = method, data = data)

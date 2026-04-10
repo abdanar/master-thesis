@@ -17,7 +17,7 @@ mesh1D = Mesh(vertices = vert1D, dim = 1)
 t0 = 0.0
 T = 1.0
 ntime = 101
-time_steps = np.linspace(t0, T, ntime)
+time_grid = np.linspace(t0, T, ntime)
 
 # Finite element space of degree 1
 femspace1D = FEMSpace(mesh1D, domain = 'interval', degree = 1)
@@ -38,19 +38,19 @@ def h1D(x):
 fom1D = HeatProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D)
 
 # POD reduction of the 1D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson) to r = 10 modes
-#pod1D = POD(heat_problem = fom1D, ntime = 100, lift = 'nodal', r = 40)
+pod1D = POD(heat_problem = fom1D, ntime = 31, lift = 'nodal', theta = 0.5, r = 10)
 
-#print("Projection matrix V shape:", pod1D.V.shape) # Should be (n_interior, r) where n_interior is the number of interior nodes and r is the number of modes retained
+print("Projection matrix V shape:", pod1D.V.shape) # Should be (n_interior, r) where n_interior is the number of interior nodes and r is the number of modes retained
 
-# Reduce the 1D Heat problem using a projection matrix (for testing, we use the identity matrix, which means no actual reduction)
-rom1D = ReducedHeatProblem(heat_problem = fom1D, V = np.eye(len(fom1D.interior_nodes)))
+# Reduce the 1D Heat problem using a projection matrix
+rom1D = ReducedHeatProblem(heat_problem = fom1D, V = pod1D.V)
 
 # Solve the 1D Reduced Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson) and reconstruct the full solution
-rom_solution1D = rom1D.solve(ntime = ntime, lift = 'nodal', theta = 1, reconstruct = True)
+rom_solution1D = rom1D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5, reconstruct = True)
 
 # Error analysis
-error1D = np.linalg.norm(rom_solution1D - exact1D(mesh1D.vertices[:, None], time_steps[None, :]), axis = 0)
-print("max error (fem vs exact):", error1D.max())
+error1D = np.linalg.norm(rom_solution1D - exact1D(mesh1D.vertices[:, None], time_grid[None, :]), axis = 0)
+print("max error (rom vs exact):", error1D.max())
 
 # ---------------------------------
 # 2D Example (Reduced Heat problem)
@@ -66,7 +66,7 @@ mesh2D = Mesh(vertices = vertices, segments = segments, segment_markers = segmen
 t0 = 0.0
 T = 1.0
 ntime = 101
-time_steps = np.linspace(t0, T, ntime)
+time_grid = np.linspace(t0, T, ntime)
 
 # Finite element space of degree 1
 femspace2D = FEMSpace(mesh2D, degree = 1)
@@ -87,16 +87,16 @@ def h2D(x, y):
 fom2D = HeatProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D)
 
 # POD reduction of the 2D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson) to r = 10 modes
-#pod2D = POD(heat_problem = fom2D, ntime = 100, lift = 'nodal', r = 40)
+pod2D = POD(heat_problem = fom2D, ntime = 31, lift = 'nodal', theta = 0.5, r = 10)
 
-#print("Projection matrix V shape:", pod2D.V.shape) # Should be (n_interior, r) where n_interior is the number of interior nodes and r is the number of modes retained
+print("Projection matrix V shape:", pod2D.V.shape) # Should be (nintnodes, r) where nintnodes is the number of interior nodes and r is the number of modes retained
 
-# Reduce the 2D Heat problem using a projection matrix (for testing, we use the identity matrix, which means no actual reduction)
-rom2D = ReducedHeatProblem(heat_problem = fom2D, V = np.eye(len(fom2D.interior_nodes)))
+# Reduce the 2D Heat problem using a projection matrix
+rom2D = ReducedHeatProblem(heat_problem = fom2D, V = pod2D.V)
 
 # Solve the 2D Reduced Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson) and reconstruct the full solution
-rom_solution2D = rom2D.solve(ntime = ntime, lift = 'nodal', theta = 1, reconstruct = True)
+rom_solution2D = rom2D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5, reconstruct = True)
 
 # Error analysis
-error2D = np.linalg.norm(rom_solution2D - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_steps[None, :]), axis = 0)
-print("max error (fem vs exact):", error2D.max())
+error2D = np.linalg.norm(rom_solution2D - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_grid[None, :]), axis = 0)
+print("max error (rom vs exact):", error2D.max())

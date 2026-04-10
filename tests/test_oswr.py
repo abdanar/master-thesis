@@ -17,7 +17,7 @@ mesh1D = Mesh(vertices = vert1D, dim = 1)
 t0 = 0.0
 T = 1.0
 ntime = 101
-time_steps = np.linspace(t0, T, ntime)
+time_grid = np.linspace(t0, T, ntime)
 
 # Finite element space of degree 1
 femspace1D = FEMSpace(mesh1D, domain = 'interval', degree = 1)
@@ -38,19 +38,19 @@ def h1D(x):
 problem1D = HeatProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D)
 
 # Solve the 1D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
-heat_solution1D = problem1D.solve(ntime = ntime, lift = 'nodal', theta = 0.5)
+heat_solution1D = problem1D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5)
 
 # Define Schwarz problem with 2 subdomains and overlap of 1 layer of elements with version 2 of the decomposition algorithm
 oswrproblem1D = OSWRProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D, n = 2, overlap = 1, version = 2)
 
 # Solve the problem using the Schwarz method with RAS, nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
-oswr_solution1D = oswrproblem1D.solve(ntime = ntime, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 150, tol = 1e-12)
+oswr_solution1D = oswrproblem1D.solve(time_grid = time_grid, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 150, tol = 1e-12)
 
 # Solve the problem using the Schwarz method with RAS, nodal lifting and theta method with theta = 0.5 (Crank-Nicolson), while tracking convergence history
-# oswr_solution1D = oswrproblem1D.solve(ntime = ntime, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-3, history = True, uh = poisson_solution1D, exact = exact1D)
+# oswr_solution1D = oswrproblem1D.solve(time_grid = time_grid, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-3, history = True, uh = poisson_solution1D, exact = exact1D)
 
 # Error analysis (compute L2 error between schwarz solution and exact solution, as well as between schwarz solution and fem solution for each time step and report the maximum error across all time steps)
-error1D = np.linalg.norm(oswr_solution1D - exact1D(mesh1D.vertices[:, None], time_steps[None, :]), axis = 0)
+error1D = np.linalg.norm(oswr_solution1D - exact1D(mesh1D.vertices[:, None], time_grid[None, :]), axis = 0)
 error_fem1D = np.linalg.norm(heat_solution1D - oswr_solution1D, axis = 0)
 print("max error (schwarz vs exact):", error1D.max())
 print("max error (schwarz vs fem):", error_fem1D.max())
@@ -73,7 +73,7 @@ mesh2D = Mesh(vertices = vertices, segments = segments, segment_markers = segmen
 t0 = 0.0
 T = 3.0
 ntime = 101
-time_steps = np.linspace(t0, T, ntime)
+time_grid = np.linspace(t0, T, ntime)
 
 # Finite element space of degree 1
 femspace2D = FEMSpace(mesh2D, degree = 1)
@@ -94,19 +94,19 @@ def h2D(x, y):
 problem2D = HeatProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D)
 
 # Solve the 2D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
-heat_solution2D = problem2D.solve(ntime = ntime, lift = 'nodal', theta = 0.5)
+heat_solution2D = problem2D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5)
 
 # Define Schwarz problem with 3 subdomains and overlap of 1 layer of elements with version 2 of the decomposition algorithm
 oswrproblem2D = OSWRProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D, n = 3, overlap = 1, version = 2)
 
 # Solve the problem using the Schwarz method with RAS, nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
-oswr_solution = oswrproblem2D.solve(ntime = ntime, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 150, tol = 1e-12)
+oswr_solution = oswrproblem2D.solve(time_grid = time_grid, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 150, tol = 1e-12)
 
 # Solve the problem using the Schwarz method with RAS, nodal lifting and theta method with theta = 0.5 (Crank-Nicolson), while tracking convergence history
-# oswr_solution = oswrproblem2D.solve(ntime = ntime, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-2, history = True, uh = heat_solution2D, exact = exact2D)
+# oswr_solution = oswrproblem2D.solve(time_grid = time_grid, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 100, tol = 1e-2, history = True, uh = heat_solution2D, exact = exact2D)
 
 # Error analysis (compute L2 error between schwarz solution and exact solution, as well as between schwarz solution and fem solution for each time step and report the maximum error across all time steps)
-error2D = np.linalg.norm(oswr_solution - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_steps[None, :]), axis = 0)
+error2D = np.linalg.norm(oswr_solution - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_grid[None, :]), axis = 0)
 error_fem2D = np.linalg.norm(heat_solution2D - oswr_solution, axis = 0)
 print("max error (schwarz vs exact):", error2D.max())
 print("max error (schwarz vs fem):", error_fem2D.max())

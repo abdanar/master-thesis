@@ -3,19 +3,19 @@ from fem.mesh import Mesh
 from fem.femspace import FEMSpace
 from fom.heat import HeatProblem
 
-# ----------------------------
+# --------------------------
 # 1D Example (Heat problem)
-# ----------------------------
+# --------------------------
 
 # Create a mesh - space mesh generation
-vert1D = np.linspace(0, 1, 150)
+vert1D = np.linspace(0, 1, 100)
 mesh1D = Mesh(vertices = vert1D, dim = 1)
 
 # Time domain definition (ntime = (T - t0)/dt + 1 for uniform time steps)
 t0 = 0.0
 T = 1.0
 ntime = 101
-time_steps = np.linspace(t0, T, ntime)
+time_grid = np.linspace(t0, T, ntime)
 
 # Finite element space of degree 1
 femspace1D = FEMSpace(mesh1D, domain = 'interval', degree = 1)
@@ -36,15 +36,15 @@ def h1D(x):
 problem1D = HeatProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D)
 
 # Solve the 1D Heat problem using nodal lifting and theta method with theta = 1 (Backward Euler)
-heat_solution1D_nodal = problem1D.solve(ntime = ntime, lift = 'nodal', theta = 1)
+heat_solution1D_nodal = problem1D.solve(time_grid = time_grid, lift = 'nodal', theta = 1)
 
 # Error analysis
-error1D_nodal = np.linalg.norm(heat_solution1D_nodal - exact1D(femspace1D.mesh.vertices[:, None], time_steps[None, :]), axis = 0)
+error1D_nodal = np.linalg.norm(heat_solution1D_nodal - exact1D(femspace1D.mesh.vertices[:, None], time_grid[None, :]), axis = 0)
 print("max error (fem vs exact) with nodal lifting:", error1D_nodal.max())
 
-# ----------------------------
+# --------------------------
 # 2D Example (Heat problem)
-# ----------------------------
+# --------------------------
 
 # Create a simple square mesh - space mesh generation
 vertices = np.array([[0,0],[1,0],[1,1],[0,1]])
@@ -56,7 +56,7 @@ mesh2D = Mesh(vertices = vertices, segments = segments, segment_markers = segmen
 t0 = 0.0
 T = 1.0
 ntime = 101
-time_steps = np.linspace(t0, T, ntime)
+time_grid = np.linspace(t0, T, ntime)
 
 # Finite element space of degree 1
 femspace2D = FEMSpace(mesh2D, degree = 1)
@@ -77,8 +77,8 @@ def h2D(x, y):
 problem2D = HeatProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D)
 
 # Solve the 2D Heat problem using nodal lifting and theta method with theta = 1 (Backward Euler)
-heat_solution2D_nodal = problem2D.solve(ntime = ntime, lift = 'nodal', theta = 1)
+heat_solution2D_nodal = problem2D.solve(time_grid = time_grid, lift = 'nodal', theta = 1)
 
 # Error analysis
-error2D_nodal = np.linalg.norm(heat_solution2D_nodal - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_steps[None, :]), axis = 0)
+error2D_nodal = np.linalg.norm(heat_solution2D_nodal - exact2D(femspace2D.mesh.vertices[:,0][:, None], femspace2D.mesh.vertices[:,1][:, None], time_grid[None, :]), axis = 0)
 print("max error (fem vs exact) with nodal lifting:", error2D_nodal.max())

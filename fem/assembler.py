@@ -13,7 +13,7 @@ logger = setup_logger(__name__, level = 'info')
 
 #----------------- Assembler for Finite Element Method (FEM) -------------------------
 # The `Assembler` class is responsible for assembling the global stiffness matrix, 
-# convection matrix, mass matrix, and load vector for a given finite element space. 
+# convection matrix, reaction matrix, and load vector for a given finite element space. 
 # It uses the local integrator to compute the contributions from each element and 
 # assembles them into global sparse matrices and vectors. 
 #
@@ -80,23 +80,23 @@ class Assembler:
         logger.debug("Global convection matrix assembly complete")
         return C_global
     
-    # Define global mass matrix
-    def global_mass_matrix(self, reaction: Callable, quadrature_order: int = 2) -> coo_array:
-        logger.debug(f"Assembling global mass matrix for degree={self.degree}")
+    # Define global reaction matrix
+    def global_reaction_matrix(self, reaction: Callable, quadrature_order: int = 2) -> coo_array:
+        logger.debug(f"Assembling global reaction matrix for degree={self.degree}")
         elements = self.mesh.elements
         ref_element = ReferenceElement(self.dim, self.domain, self.space, self.degree)
         rows, cols, vals = [], [], []
         for element in elements:
             phy_element = self._build_physical_element(element, ref_element)
-            lmass = LocalIntegrator(phy_element, quadrature_order).local_mass_matrix(reaction)
+            lreaction = LocalIntegrator(phy_element, quadrature_order).local_reaction_matrix(reaction)
             for i_local, i_global in enumerate(element):
                 for j_local, j_global in enumerate(element):
                     rows.append(i_global)
                     cols.append(j_global)
-                    vals.append(lmass[i_local, j_local])
-        M_global = coo_array((vals, (rows, cols)), shape=(self.nnodes, self.nnodes))
-        logger.debug("Global mass matrix assembly complete")
-        return M_global
+                    vals.append(lreaction[i_local, j_local])
+        R_global = coo_array((vals, (rows, cols)), shape=(self.nnodes, self.nnodes))
+        logger.debug("Global reaction matrix assembly complete")
+        return R_global
     
     # Define global load vector
     def global_load_vector(self, func: Callable, quadrature_order: int = 2) -> np.ndarray:

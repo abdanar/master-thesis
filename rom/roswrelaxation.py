@@ -56,6 +56,7 @@ class ROSWRProblem():
             self.icond = self.h(self.verts[:,0], self.verts[:,1])
         self.error_subdomains = {}
         self.error_history = []
+        self.solution = []
 
     def construct_dirichlet_bc(self, subfemspace: FEMSpace, data: dict[int, np.ndarray], method: Literal['AS', 'RAS'], domainID: int) -> np.ndarray:
         """
@@ -365,7 +366,7 @@ class ROSWRProblem():
 
     def solve(self, projs: dict[int, np.ndarray], time_grid: np.ndarray, theta: float = 0.5, lift: str = 'nodal', method: Literal['AS', 'RAS'] = 'RAS', omega: float = 1.0, 
               solver: LinearSolver = DirectSolver(), maxiter: int = 100, tol: float = 1e-3, criterion: Callable[[dict[int, np.ndarray], dict[int, np.ndarray]], float] = boundary_criterion,
-              history: bool = False, norm: str = 'l2', uh: Optional[np.ndarray] = None, exact: Optional[Callable] = None) -> np.ndarray:
+              store_solution: tuple = (0, 0), history: bool = False, norm: str = 'l2', uh: Optional[np.ndarray] = None, exact: Optional[Callable] = None) -> np.ndarray:
         """
         Solve the Reduced Overlapping Schwarz Waveform Relaxation (ROSWR) problem using the specified parameters and return the computed global solution.
 
@@ -396,6 +397,12 @@ class ROSWRProblem():
             Convergence tolerance for the stopping criterion.
         criterion : Callable, default = boundary_criterion
             Convergence criterion function. It should accept the old and new subdomain solutions and return a float representing the error.
+        store_solution : tuple, default = (0, 0)
+            A tuple (domainID, time_step) specifying which subdomain solution and time step to store in `self.solution` for later analysis.
+             - `domainID` is the ID of the subdomain whose solution to store (starting from 1).
+             - `time_step` is the index of the time step to store (starting from 0, where 0 corresponds to t0). 
+             If `store_solution` is (0, 0), no solution will be stored. If `store_solution` is (domainID, time_step), the solution for the specified subdomain and time step will be stored in
+            `self.solution` at each iteration for later analysis.
         history : bool, default = False
             Whether to store the error history at each iteration for later analysis.
         norm : str, default = 'l2'
@@ -474,8 +481,14 @@ class ROSWRProblem():
                 for i in data:
                     data[i] = (1 - omega) * data[i] + omega * new_data[i]
 
+            # Store error history for each subdomain and the global solution if history is True
             if history:
                 self.store_history(subproblems = subroms, ntime = ntime, time_grid = time_grid, method = method, oswr_data = data, uh = uh, exact = exact, norm = norm)
+
+            # Store the solution for the specified subdomain and time step if requested
+            if store_solution != (0, 0):
+                domainID, time_step = store_solution
+                self.solution.append(data[domainID][:, time_step])
 
             if error < tol:
                 logger.info(f"\033[92m[Reduced Schwarz Waveform Relaxation]\033[0m Converged after \033[93m{iter + 1}\033[0m iterations with error = \033[91m{error:.6e}\033[0m")

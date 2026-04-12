@@ -40,8 +40,8 @@
 \newtcbtheorem[use counter=equation]{definition}{Definition}%
 {colback=white,colframe=black,fonttitle=\bfseries}{def}
 
-%\newtcbtheorem[use counter=equation]{remark}{Remark}%
-%{colback=white,colframe=black,fonttitle=\bfseries}{rem}
+% \newtcbtheorem[use counter=equation]{remark}{Remark}%
+% {colback=white,colframe=black,fonttitle=\bfseries}{rem}
 
 \theoremstyle{remark} 
 \newtheorem{remark}[equation]{Remark} 
@@ -1072,7 +1072,7 @@ This splitting allows us to analyze each contribution to the total error separat
 \vspace{10pt}
 \noindent We equip the space
 \begin{equation*}
-    V_{j} = H^{1}_{0}(\Omega_{j}) = \left\{v\in H^{1}(\Omega_{j}) : v = 0 \text{ on } \partial\Omega_{j} = \Gamma_{j0}\cup\bigcup_{l\in\mathcal{N}_{j}}\Gamma_{jl}\right\}.
+    V_{j} = H^{1}_{0}(\Omega_{j}) = \left\{v\in H^{1}(\Omega_{j}) : v = 0 \text{ on } \partial\Omega_{j}\right\}.
 \end{equation*}
 with the inner product
 \begin{equation*}
@@ -1152,7 +1152,8 @@ Since $\mu_{j}^{k+1}(\cdot, 0) = 0$ for all $k$, we have $\varphi_{j}^{k+1}(0) =
 \end{equation*}
 Thus, we obtain
 \begin{equation*}
-    \left\lVert \mu_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} \leq e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\left(\eta_{j}^{k+1} + \delta_{j}^{k+1}\right)(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} + \lVert \nabla \delta_{j}^{k+1}(\cdot, s)\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}.
+    \boxed{
+    \left\lVert \mu_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} \leq e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\left(\eta_{j}^{k+1} + \delta_{j}^{k+1}\right)(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} + \lVert \nabla \delta_{j}^{k+1}(\cdot, s)\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}}.
 \end{equation*}
 \begin{remark}
 Since $\mu_{j}^{k+1}$ satisfies homogeneous Dirichlet boundary conditions, by the Poincaré inequality, we have
@@ -1179,25 +1180,90 @@ Here, we get rid of the exponential term appearing in the inequality, but this r
 \end{equation*}
 where $\eta_{j}^{k+1}$ denotes the interior reduced approximation error (with homogeneous boundary conditions), and $\delta_{j}^{k+1}$ represents the lifting error induced by the ROM-compatible boundary treatment. Then, for the total error, we have
 \begin{align*}
-    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} &\leq \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + \left\lVert\mu_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})}\leq\\
-    &\leq \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\varepsilon_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} + \lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}.
+    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} &\leq \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + \left\lVert\mu_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})}\leq\\
+    &\leq \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\varepsilon_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} + \lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2},
 \end{align*}
-This result holds for a general lifting function, and depending on the choice, it may reduce to a simpler form. In particular, if we use harmonic lifting, the estimate becomes
+or $H^1$-estimate
+\begin{align*}
+    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} &\leq \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + \left\lVert\mu_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})}\leq\\
+    &\leq \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\varepsilon_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} + \lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2},
+\end{align*}
+where $C_{eq}>0$ is the constant of equivalence between the $L^2$ and $H^1$ norms on $V_{j, r}$, which exists since $V_{j, r}$ 
+is a finite-dimensional space. This constant can be explicitly computed and next theorem provides an upper bound for it.
+\begin{theorem}{Equivalence constant for $V_{j, r}$}{eqc}
+    Let $V_{j, r}$ be a finite-dimensional subspace of $V_{j} = H^1_0(\Omega_j)$, and let $\{\phi_i\}_{i=1}^N$ be a basis of 
+    $V_{j, r}$. Then, for all $v \in V_{j, r}$, we have
+    \begin{equation*}
+        \|v\|_{H^1(\Omega_j)} \leq \sqrt{1 + \lambda_{\max}(M^{-1}K)} \|v\|_{L^2(\Omega_j)},
+    \end{equation*}
+    where $M$ and $K$ are the mass and stiffness matrices associated with the basis $\{\phi_i\}_{i=1}^N$, defined by
+    \begin{equation*}
+        M_{ij} = \int_{\Omega_j} \phi_i \phi_j \, dx, \qquad K_{ij} = \int_{\Omega_j} \nabla \phi_i \cdot \nabla \phi_j \, dx.
+    \end{equation*}
+\end{theorem}
+\begin{proof}
+    Let $v \in V_{j, r}$ be arbitrary. We can express $v$ in terms of the basis $\{\phi_i\}_{i=1}^N$ as
+    \begin{equation*}        
+        v = \sum_{i=1}^N c_i \phi_i,
+    \end{equation*}
+for some coefficients $c = (c_1, \ldots, c_N)^T \in \mathbb{R}^N$. Then, we have
+\begin{align*}
+    \|v\|_{L^2(\Omega_j)}^2 &= \int_{\Omega_j} \left(\sum_{i=1}^N c_i \phi_i\right)^2 dx = c^T M c,\\
+    \|v\|_{H^1(\Omega_j)}^2 &= \int_{\Omega_j} \left|\sum_{i=1}^N c_i \phi_i\right|^2 dx + \int_{\Omega_j} \left|\nabla \sum_{i=1}^N c_i \phi_i\right|^2 dx = c^T M c + c^T K c.
+\end{align*}
+Since $V_{j, r}$ is finite-dimensional, all norms are equivalent, and in particular, there exists a constant $C_{eq}>0$ such that
 \begin{equation*}
-    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} \leq \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\varepsilon_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2},
+    \|v\|_{H^1(\Omega_j)} \leq C_{eq} \|v\|_{L^2(\Omega_j)} \quad \text{for all } v \in V_{j, r}.
+\end{equation*}
+This is equivalent to
+\begin{equation*}
+    c^T(M + K)c \leq C_{eq}^2 c^T M c \quad \text{for all } c \in \mathbb{R}^N,
+\end{equation*}
+which implies 
+\begin{equation*}
+    C_{eq}^{2} = \sup_{c \neq 0} \dfrac{c^T(M + K)c}{c^T M c} = \sup_{c \neq 0} \left(1 + \dfrac{c^T K c}{c^T M c}\right) = 1 + \sup_{c \neq 0} \dfrac{c^T K c}{c^T M c} = 1 + \lambda_{\max}(M^{-1}K),
+\end{equation*}
+where $\lambda_{\max}(M^{-1}K)$ is the largest eigenvalue of the generalized eigenvalue problem $K c = \lambda M c$. Therefore, we have
+\begin{equation*}
+    \|v\|_{H^1(\Omega_j)} \leq \sqrt{1 + \lambda_{\max}(M^{-1}K)} \|v\|_{L^2(\Omega_j)},
+\end{equation*}
+which completes the proof.
+\end{proof}
+The above estimates hold for a general lifting function, and depending on the choice, it may reduce to a simpler form. In particular, 
+if we use harmonic lifting, the estimate becomes
+\begin{equation*}
+    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} \leq \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\varepsilon_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2},
+\end{equation*}
+or in the $H^1$-norm
+\begin{equation*}
+    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} \leq \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\varepsilon_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}.
 \end{equation*}
 It is important to note that if a full-model lifting is used instead of a reduced-order compatible lifting in each iteration for each subdomain, then we obtain
+\begin{equation*}
+    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} \leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2},
+\end{equation*}
+or in the $H^1$-norm
 \begin{equation*}
     \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} \leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2},
 \end{equation*}
 which is the expected result, since in this case the error depends only on the reduction error introduced. 
 
 \vspace{10pt}
-\noindent Before we proceed, it is better to include certain intermediate observations. Since $P_{j, r}$ is a best approximation in the $V_{j}$-norm, we have
+\noindent Before we proceed, it is better to include certain intermediate observations. Since $P_{j, r}$ is a best approximation 
+in the $V_{j}$-norm and $\eta_{j}^{k+1}(\cdot, t)\in V_{j} = H_0^1(\Omega_j)$, we have
 \begin{equation*}
-    \dfrac{1}{\sqrt{1 + C_{P}^{2}}}\left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} \leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{V_{j}} = \lVert w_j^{k+1} - P_{j,r} w_j^{k+1} \rVert_{V_j} = \inf_{v_r \in V_{j,r}} \lVert w_j^{k+1} - v_r \rVert_{V_j}.
+    \dfrac{1}{C_{P}}\left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})}\leq\left\lVert\nabla\eta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} = \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{V_{j}} = \lVert w_j^{k+1} - P_{j,r} w_j^{k+1} \rVert_{V_j} = \inf_{v_r \in V_{j,r}} \lVert w_j^{k+1} - v_r \rVert_{V_j},
 \end{equation*}
+or in the $H^1$-norm
+\begin{equation*}
+    \dfrac{1}{\sqrt{1 + C_{P}^{2}}}\left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} \leq \left\lVert\nabla\eta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} = \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{V_{j}} = \lVert w_j^{k+1} - P_{j,r} w_j^{k+1} \rVert_{V_j} = \inf_{v_r \in V_{j,r}} \lVert w_j^{k+1} - v_r \rVert_{V_j},
+\end{equation*}
+where $C_{P}>0$ is the Poincaré constant.
 Further error analysis is purely a topic of MOR theory, which will be addressed later and depends on the method chosen. I would like to consider the effect of a reduced-order compatible lifting approach in each iteration. For this reason, we obtain the following
+\begin{equation*}
+    \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} \leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + \left\lVert\delta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})},   
+\end{equation*}
+or in the $H^1$-norm
 \begin{equation*}
     \left\lVert\varepsilon_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} \leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + \left\lVert\delta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})},   
 \end{equation*}
@@ -1205,60 +1271,24 @@ and using $(a+b)^{2}\leq 2a^{2}+2b^2$, $\sqrt{a+b}\leq \sqrt{a} + \sqrt{b}$
 \begin{align*}
     \left(\int_{0}^{t}\left\lVert \partial_{t}\varepsilon_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} + \lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2} &\leq \left(\int_{0}^{t}2\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} + 2\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\right.\\ 
     &\left.+\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2} \leq \sqrt{2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}+\\
-    & + \left(\int_{0}^{t}2\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2}
+    & + \left(\int_{0}^{t}2\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2}.
 \end{align*}
 Thus, we get
 \begin{align*}
-    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} &\leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}+\\
-    &\quad +\left\lVert\delta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}e^{T/2}\left(\int_{0}^{t}2\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2},
+    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} &\leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + \sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}\\
+    &\quad +\left\lVert\delta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + \sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2},
 \end{align*}
-or
+or in the $H^1$-norm
 \begin{align*}
     \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} &\leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}\\
     &\quad +\left\lVert\delta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2}.
 \end{align*}
-For harmonic lifting, this estimate reduces to
-\begin{align*}
-    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} &\leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}\\
-    &\quad +\left\lVert\delta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} ds\right)^{1/2}.
-\end{align*}
-This estimate clearly shows the effect of the proposed reduced-order compatible lifting approach. We are not done! An important part is to replace these additional terms with the previous iteration errors, possibly from the neighbouring subdomains. Here, we will consider two cases discussed above: the Additive Schwarz and the Restricted Additive Schwarz methods: Lifting functions $l_{j}^{k+1}(\cdot, t), l_{j, r}^{k+1}(\cdot, t)\in H^{1}(\Omega_{j})$ is defined by
+This estimate clearly shows the effect of the proposed reduced-order compatible lifting approach. We are not done! 
+An important part is to replace these additional terms with the previous iteration errors, possibly from the neighbouring 
+subdomains. Lifting functions $l_{j}^{k+1}(\cdot, t), l_{j, r}^{k+1}(\cdot, t)\in H^{1}(\Omega_{j})$ is defined by
 \begin{equation*}
-    l_{j}^{k+1}(\cdot, t) := E_{\text{Tr}}(\psi_{j}^{k}(\cdot, t)), \qquad l_{j, r}^{k+1}(\cdot, t) := E_{\text{Tr}}(\psi_{j, r}^{k}(\cdot, t)),\footnote{$E_{\text{Tr}}$ denote a fixed bounded linear right inverse of the trace operator. The full and reduced liftings are defined using this same extension operator.}
+    l_{j}^{k+1}(\cdot, t) := E_{\text{Tr}}(\psi_{j}^{k}(\cdot, t)), \qquad l_{j, r}^{k+1}(\cdot, t) := E_{\text{Tr}}(\psi_{j, r}^{k}(\cdot, t)).\footnote{$E_{\text{Tr}}$ denote a fixed bounded linear right inverse of the trace operator. The full and reduced liftings are defined using this same extension operator.}
 \end{equation*}
-where
-\begin{itemize}
-    \item[--] for the Additive Schwarz method, the full and reduced boundary functions are defined by
-    \begin{equation*}
-        \psi_{j}^{k}(x, t) := 
-        \begin{cases}
-            \sum_{l\in\mathcal{I}}u_{l}^{k}(x, t), & x\in \Gamma_{j}^{\mathcal{I}},\\
-            g(x, t), & x\in \Gamma_{j0},
-        \end{cases},\qquad
-        \psi_{j,r}^{k}(x, t) := 
-        \begin{cases}
-            \sum_{l\in\mathcal{I}}u_{l,r}^{k}(x, t), & x\in \Gamma_{j}^{\mathcal{I}},\\
-            g(x, t), & x\in \Gamma_{j0},
-        \end{cases}
-    \end{equation*}
-    \item[--] for the Restricted Additive Schwarz method, the full and reduced boundary functions are defined by
-    \begin{equation*}
-        \psi_{j}^{k}(x, t) := 
-        \begin{cases}
-            \sum_{l\in\mathcal{I}}w_{l}u_{l}^{k}(x, t), & x\in \Gamma_{j}^{\mathcal{I}},\\
-            g(x, t), & x\in \Gamma_{j0},
-        \end{cases},\qquad
-        \psi_{j,r}^{k}(x, t) := 
-        \begin{cases}
-            \sum_{l\in\mathcal{I}}w_{l}u_{l,r}^{k}(x, t), & x\in \Gamma_{j}^{\mathcal{I}},\\
-            g(x, t), & x\in \Gamma_{j0},
-        \end{cases}
-    \end{equation*}
-    on a disjoint decomposition of the boundary up to measure zero
-    \begin{equation*}
-        \partial\Omega_{j} = \bigcup_{\emptyset \neq \mathcal{I}\subset\mathcal{N}_{j}}\Gamma_{j}^{\mathcal{I}}, \qquad \Gamma_{j}^{\mathcal{I}} = \bigcap_{l\in\mathcal{I}}\Gamma_{jl}\setminus\bigcup_{k\in\mathcal{N}_{j}\setminus\mathcal{I}}\Gamma_{jk}.
-    \end{equation*}
-\end{itemize}
 Since $E_{\text{Tr}}$ is a linear operator, the lifting error can be written as
 \begin{equation*}
     \delta_{j}^{k+1}(\cdot, t) = l_{j}^{k+1}(\cdot, t) - l_{j, r}^{k+1}(\cdot, t) = E_{\text{Tr}}\left((\psi_{j}^{k} - \psi_{j, r}^{k})(\cdot, t)\right),
@@ -1267,187 +1297,131 @@ and from the boundedness of the operator, there exists a constant $C_{E}>0$, dep
 \begin{equation*}
     \lVert\delta_{j}^{k+1}(\cdot, t)\rVert_{H^{1}(\Omega_{j})} \leq C_{E}\lVert(\psi_{j}^{k} - \psi_{j, r}^{k})(\cdot, t)\rVert_{H^{1/2}(\partial\Omega_{j})}.
 \end{equation*}
-Next step is to compute $\lVert(\psi_{j}^{k} - \psi_{j, r}^{k})(\cdot, t)\rVert_{H^{1/2}(\partial\Omega_{j})}$. Considering the boundary functions defined above,
-\begin{itemize}
-    \item[--] for the Additive Schwarz method, we get
-    \begin{equation*}
-        \psi_{j}^{k}(x, t) - \psi_{j,r}^{k}(x, t) = 
-        \begin{cases}
-            \sum_{l\in\mathcal{I}}\left(u_{l}^{k}(x, t) - u_{l, r}^{k}(x, t)\right), & x\in \Gamma_{j}^{\mathcal{I}},\\
-            0, & x\in \Gamma_{j0},
-        \end{cases},
-    \end{equation*}
-    \item[--] for the Restricted Additive Schwarz method, we get
-    \begin{equation*}
-        \psi_{j}^{k}(x, t) - \psi_{j,r}^{k}(x, t) = 
-        \begin{cases}
-            \sum_{l\in\mathcal{I}}w_{l}\left(u_{l}^{k}(x, t) - u_{l, r}^{k}(x, t)\right), & x\in \Gamma_{j}^{\mathcal{I}},\\
-            0, & x\in \Gamma_{j0}.
-        \end{cases}
-    \end{equation*}
-\end{itemize}
-Once we use the definition of $H^{1/2}$ norm on the boundary $\partial\Omega_{j}$, we obtain
+Next step is to compute $\lVert(\psi_{j}^{k} - \psi_{j, r}^{k})(\cdot, t)\rVert_{H^{1/2}(\partial\Omega_{j})}$. 
+Considering the boundary functions defined above, we get
 \begin{equation*}
-    \lVert(\psi_{j}^{k} - \psi_{j, r}^{k})(\cdot, t)\rVert^{2}_{H^{1/2}(\partial\Omega_{j})} \leq \sum_{\mathcal{I}\subset\mathcal{N}_{j}}\sum_{l\in\mathcal{I}}\left\lVert \left(u_{l}^{k} - u_{l, r}^{k}\right)(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})}^{2} \leq C_{m}\sum_{l\in\mathcal{N}_{j}}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})}^{2},
-\end{equation*}
-or using $\sqrt{a+b}\leq\sqrt{a}+\sqrt{b}$,
-\begin{equation*}
-    \lVert(\psi_{j}^{k} - \psi_{j, r}^{k})(\cdot, t)\rVert_{H^{1/2}(\partial\Omega_{j})} \leq \sqrt{C_{m}}\sum_{l\in\mathcal{N}_{j}}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})},\footnote{It’s less sharp than the root-of-sum-of-squares version, and it overestimates slightly.}
-\end{equation*}
-which implies
-\begin{equation*}    
-\lVert\delta_{j}^{k+1}(\cdot, t)\rVert_{H^{1}(\Omega_{j})} \leq C_{E}\sqrt{C_{m}}\sum_{l\in\mathcal{N}_{j}}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})}.
-\end{equation*}
-Similarly, we obtain
-\begin{equation*}
-    \lVert\partial_{t}(\psi_{j}^{k} - \psi_{j, r}^{k})(\cdot, t)\rVert^{2}_{H^{1/2}(\partial\Omega_{j})}\leq C_{m}\sum_{l\in\mathcal{N}_{j}}\left\lVert \partial_{t}e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})}^{2},
-\end{equation*}
-which implies
-\begin{equation*}
-    \lVert\partial_{t}\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} \leq \lVert\partial_{t}\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{H^{1}(\Omega_{j})} \leq C_{E}^{2}C_{m}\sum_{l\in\mathcal{N}_{j}}\left\lVert \partial_{t}e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})}^{2}.
-\end{equation*}
-Also, we have
-\begin{equation*}
-    \lVert\nabla\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} \leq \lVert\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{H^{1}(\Omega_{j})} \leq C_{E}^{2}C_{m}\sum_{l\in\mathcal{N}_{j}}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})}^{2}.
-\end{equation*}
-Once we use all the inequalities, we obtain
-\begin{align*}
-    \left\lVert\delta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} &+ C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2} \leq C_{E}\sqrt{C_{m}}\sum_{l\in\mathcal{N}_{j}}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})} +\\
-    &\quad + C_{eq}\sqrt{2}C_{E}\sqrt{C_{m}}e^{T/2}\left(\sum_{l\in\mathcal{N}_{j}}\int_{0}^{t}\left\lVert \partial_{t}e_{l, r}^{k}(\cdot, s)\right\rVert_{H^{1/2}(\Gamma_{jl})}^{2} + \left\lVert e_{l, r}^{k}(\cdot, s)\right\rVert_{H^{1/2}(\Gamma_{jl})}^{2}\,ds\right)^{1/2}.
-\end{align*}
-Thus, the general estimate reduces to
-\begin{align*}
-    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} &\leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}+ C_{j}\sum_{l\in\mathcal{N}_{j}}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})}+\\
-    &\quad + C_{eq}\sqrt{2}C_{j}e^{T/2}\left(\sum_{l\in\mathcal{N}_{j}}\int_{0}^{t}\left\lVert \partial_{t}e_{l,r}^{k}(\cdot, s)\right\rVert^{2}_{H^{1/2}(\Gamma_{jl})} +\left\lVert e_{l,r}^{k}(\cdot, s)\right\rVert^{2}_{H^{1/2}(\Gamma_{jl})}\,ds\right)^{1/2},
-\end{align*}
-where $C_{j} = C_{E}\sqrt{C_{m}}$. Before making an important remark, let us discuss the initialization of the iterative method, i.e., $u_{j}^{0}$ and $u_{j, r}^{0}$. By definition, we have
-\begin{equation*}
-    u_{j}^{0}(x, t) = w_{j}^{0}(x, t) + l_{j}^{0}(x, t), \qquad u_{j, r}^{0}(x, t) = w_{j, r}^{0}(x, t) + l_{j, r}^{0}(x, t),
-\end{equation*}
-where $w_{j}^{0}\in V_{j} = H_{0}^{1}(\Omega_{j})$, $w_{j, r}^{0}\in V_{j, r}\subset H_{0}^{1}(\Omega_{j})$, $l_{j}^{0}\in H^{1}(\Omega_{j})$, and $l_{j, r}^{0}\in H^{1}(\Omega_{j})$. The common choice for OWR is
-\begin{equation*}
-    w_{j}^{0}(x, t) = 0, \qquad l_{j}^{0}(x, t) = E_{\text{Tr}}(\psi_{j}^{0}(\cdot, t)),
-\end{equation*}
-where
-\begin{equation*}
-    \psi_{j}^{0}(x, t) = 
+    \psi_{j}^{k}(x, t) - \psi_{j,r}^{k}(x, t) = 
     \begin{cases}
-        0 & x\in \Gamma_{jl},\, l\in \mathcal{N}_{j},\\
-        g(x, t) & x\in \Gamma_{j0}.
+        \sum_{i\in\mathcal{N}_{j}}\chi_{i}(x)\left(u_{i}^{k}(x, t) - u_{i, r}^{k}(x, t)\right), & x\in \Gamma_{j}^{\text{int}},\\
+        0, & x\in \Gamma_{j}^{\text{ext}},
     \end{cases}
 \end{equation*}
-However, one is free to choose $w_{j}^{0}(x, t)$, and it is important to note that this choice affects convergence. For ROWR, assuming the common choice above, we set
+where the partition of unity functions $\chi_{i}(x)$ are associated with the neighboring subdomains $\Omega_i$. Let us denote
 \begin{equation*}
-    w_{j, r}^{0}(x, t) = P_{j, r}w_{j}^{0}(x, t) = 0, \qquad l_{j, r}^{0}(x, t) = l_{j}^{0}(x, t).
+    e_{\psi_{j}}^{k} := \psi_{j}^{k}(x, t) - \psi_{j,r}^{k}(x, t),
 \end{equation*}
-Considering the assumptions above, it follows that
+so $e_{\psi_{j}}^{k}$ is supported on $\Gamma_{j}^{\text{int}}$. Then, we can write
 \begin{equation*}
-    e_{l,r}^{0}(x, t) = u_{l}^{0}(x, t) - u_{l, r}^{0}(x, t) = 0.
+\|e_{\psi_{j}}^{k}\|_{H^{1/2}(\partial\Omega_j)}^2 = \|e_{\psi_{j}}^{k}\|_{L^2(\partial\Omega_j)}^2 + \iint_{\partial\Omega_j \times \partial\Omega_j}
+\frac{|e_{\psi_{j}}^{k}(x)-e_{\psi_{j}}^{k}(y)|^2}{|x-y|^{d}} \, d\sigma_x d\sigma_y.
 \end{equation*}
-Then the estimate for the first iteration reads
+Since $\partial\Omega_{j} = \Gamma_j^{\text{int}} \cup \Gamma_j^{\text{ext}}$, we have
 \begin{equation*}
-    \left\lVert e_{j, r}^{1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} \leq \left\lVert\eta_{j}^{1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}, \quad \text{for all } j = 1, \ldots, N.
+\iint_{\partial\Omega_j \times \partial\Omega_j} \frac{|e_{\psi_{j}}^{k}(x)-e_{\psi_{j}}^{k}(y)|^2}{|x-y|^{d}} \, d\sigma_x d\sigma_y = I_{11} + I_{22} + 2 I_{12},
 \end{equation*}
-This shows that the quality of the surrogate model in the first iteration directly influences the overall convergence of the iteration: the more accurate the initial reduced-order model, the faster and more accurately the subsequent iterations progress.
+where 
+\begin{align*}
+I_{11} &= \iint_{\Gamma_j^{\text{int}} \times \Gamma_j^{\text{int}}} \frac{|e_{\psi_{j}}^{k}(x)-e_{\psi_{j}}^{k}(y)|^2}{|x-y|^{d}} \, d\sigma_x d\sigma_y,\\
+I_{22} &= \iint_{\Gamma_j^{\text{ext}} \times \Gamma_j^{\text{ext}}}\frac{|0-0|^2}{|x-y|^{d}} \, d\sigma_x d\sigma_y = 0,\\
+I_{12} &= \iint_{\Gamma_j^{\text{int}} \times \Gamma_j^{\text{ext}}} \frac{|e_{\psi_{j}}^{k}(x)-0|^2}{|x-y|^{d}} \, d\sigma_x d\sigma_y = 
+\int_{\Gamma_j^{\text{int}}} |e_{\psi_{j}}^{k}(x)|^2 \left( \int_{\Gamma_j^{\text{ext}}} \frac{1}{|x-y|^{d}} \, d\sigma_y \right) d\sigma_x.
+\end{align*}
+This implies that
+\begin{equation*}
+    \|e_{\psi_{j}}^{k}\|_{H^{1/2}(\partial\Omega_j)}^2 = \|e_{\psi_{j}}^{k}\|_{L^2(\Gamma_j^{\text{int}})}^2 +
+    \iint_{\Gamma_j^{\text{int}} \times \Gamma_j^{\text{int}}}\frac{|e_{\psi_{j}}^{k}(x)-e_{\psi_{j}}^{k}(y)|^2}{|x-y|^{d}} \, d\sigma_x d\sigma_y
+    + 2 \int_{\Gamma_j^{\text{int}}} |e_{\psi_{j}}^{k}(x)|^2 \left(\int_{\Gamma_j^{\text{ext}}} \frac{1}{|x-y|^{d}} \, d\sigma_y\right)d\sigma_x,
+\end{equation*}
+which can be rewritten as
+\begin{equation*}
+    \|e_{\psi_{j}}^{k}\|_{H^{1/2}(\partial\Omega_j)}^2 = \|e_{\psi_{j}}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}^2
+    + 2 \int_{\Gamma_j^{\text{int}}} |e_{\psi_{j}}^{k}(x)|^2 \left( \int_{\Gamma_j^{\text{ext}}} \frac{1}{|x-y|^{d}} \, d\sigma_y \right) d\sigma_x.
+\end{equation*}
+If $\Omega_{j}$ is an interior subdomain, then $\Gamma_j^{\text{ext}} = \emptyset$, and we have
+\begin{equation*}
+    \|e_{\psi_{j}}^{k}\|_{H^{1/2}(\partial\Omega_j)}^2 = \|e_{\psi_{j}}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}^2.
+\end{equation*}
+Once we use triangle inequality, we get
+\begin{equation*}
+    \|e_{\psi_{j}}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})} = \left\lVert\sum_{i\in\mathcal{N}_{j}}\chi_{i}(x)e_{i,r}^{k}\right\rVert_{H^{1/2}(\Gamma_j^{\text{int}})} \leq
+    \sum_{i\in\mathcal{N}_{j}}\left\lVert\chi_{i}(x)e_{i,r}^{k}\right\rVert_{H^{1/2}(\Gamma_j^{\text{int}})},
+\end{equation*}
+where $e_{i,r}^{k} := u_{i}^{k} - u_{i, r}^{k}$ is the error on the neighboring subdomain $\Omega_i$. Next step is to compute 
+$\lVert\chi_{i}(x)e_{i,r}^{k}\rVert_{H^{1/2}(\Gamma_j^{\text{int}})}$. By definition of the $H^{1/2}$-norm, we have
+\begin{equation*}
+    \lVert\chi_{i}e_{i,r}^{k}\rVert^{2}_{H^{1/2}(\Gamma_j^{\text{int}})} = 
+    \int_{\Gamma_j^{\text{int}}}|\chi_{i}(x)e_{i,r}^{k}(x)|^{2}\,d\sigma_x + \iint_{\Gamma_j^{\text{int}}\times \Gamma_j^{\text{int}}}\dfrac{|\chi_{i}(x)e_{i,r}^{k}(x) - \chi_{i}(y)e_{i,r}^{k}(y)|^{2}}{|x-y|^{n}} \, d\sigma_x\,d\sigma_y.
+\end{equation*}
+First term can be easily estimated as
+\begin{equation*}
+    \int_{\Gamma_j^{\text{int}}}|\chi_{i}(x)e_{i,r}^{k}(x)|^{2}\,d\sigma_x \leq \|\chi_{i}\|_{L^{\infty}(\Gamma_j^{\text{int}})}^{2}\|e_{i,r}^{k}\|_{L^{2}(\Gamma_j^{\text{int}})}^{2}.
+\end{equation*}
+If we expand the second term, we get
+\begin{align*}
+    |\chi_{i}(x)e_{i,r}^{k}(x) - \chi_{i}(y)e_{i,r}^{k}(y)|^{2} &= |\chi_{i}(x)(e_{i,r}^{k}(x) - e_{i,r}^{k}(y)) + (\chi_{i}(x) - \chi_{i}(y))e_{i,r}^{k}(y)|^{2}\leq\\
+    &\quad\leq 2|\chi_{i}(x)|^{2}|e_{i,r}^{k}(x) - e_{i,r}^{k}(y)|^{2} + 2|\chi_{i}(x) - \chi_{i}(y)|^{2}|e_{i,r}^{k}(y)|^{2},
+\end{align*}
+which implies that
+\begin{align*}
+    \iint_{\Gamma_j^{\text{int}}\times \Gamma_j^{\text{int}}}\dfrac{|\chi_{i}(x)e_{i,r}^{k}(x) - \chi_{i}(y)e_{i,r}^{k}(y)|^{2}}{|x-y|^{n}} \, d\sigma_x\,d\sigma_y
+    &\leq 2\|\chi_{i}\|_{L^{\infty}(\Gamma_j^{\text{int}})}^{2}\iint_{\Gamma_j^{\text{int}}\times \Gamma_j^{\text{int}}}\dfrac{|e_{i,r}^{k}(x) - e_{i,r}^{k}(y)|^{2}}{|x-y|^{n}} \, d\sigma_x\,d\sigma_y + \\
+    &\quad + 2\|e_{i,r}^{k}\|_{L^{2}(\Gamma_j^{\text{int}})}^{2}\iint_{\Gamma_j^{\text{int}}\times \Gamma_j^{\text{int}}}\dfrac{|\chi_{i}(x) - \chi_{i}(y)|^{2}}{|x-y|^{n}} \, d\sigma_x\,d\sigma_y.
+\end{align*}
+Since $\chi_{i}\in W^{1,\infty}(\Gamma_j^{\text{int}})$, the second integral is bounded, and we obtain
+\begin{equation*}
+    |\chi_{i}(x) - \chi_{i}(y)| \leq C_{par}\lVert \nabla \chi_{i}\rVert_{L^{\infty}(\Gamma_j^{\text{int}})}|x-y|,
+\end{equation*}
+where $C_{par}>0$ is found by
+\begin{equation*}
+    C_{par} = \sup_{x\neq y\in \Gamma_j^{\text{int}}}\dfrac{d_{\Gamma_j^{\text{int}}}(x,y)}{|x-y|},
+\end{equation*}
+where $d_{\Gamma_j^{\text{int}}}(x,y)$ denotes the geodesic distance between $x$ and $y$ on $\Gamma_j^{\text{int}}$. Note that if 
+$d_{\Gamma_j^{\text{int}}}(x,y) = |x-y|$, then $C_{par} = 1$, which is the case when $\Gamma_j^{\text{int}}$ is a flat surface. Thus, we have
+\begin{align*}
+    \iint_{\Gamma_j^{\text{int}}\times \Gamma_j^{\text{int}}}\dfrac{|\chi_{i}(x)e_{i,r}^{k}(x) - \chi_{i}(y)e_{i,r}^{k}(y)|^{2}}{|x-y|^{n}} \, d\sigma_x\,d\sigma_y
+    &\leq 2\|\chi_{i}\|_{L^{\infty}(\Gamma_j^{\text{int}})}^{2}\iint_{\Gamma_j^{\text{int}}\times \Gamma_j^{\text{int}}}\dfrac{|e_{i,r}^{k}(x) - e_{i,r}^{k}(y)|^{2}}{|x-y|^{n}} \, d\sigma_x\,d\sigma_y + \\
+    &\quad + 2C_{par}^{2}\lVert \nabla \chi_{i}\rVert_{L^{\infty}(\Gamma_j^{\text{int}})}^{2}\|e_{i,r}^{k}\|_{L^{2}(\Gamma_j^{\text{int}})}^{2}\iint_{\Gamma_j^{\text{int}}\times \Gamma_j^{\text{int}}}\dfrac{|x-y|^{2}}{|x-y|^{n}} \, d\sigma_x\,d\sigma_y,
+\end{align*}
+which implies that
+\begin{align*}
+    [\chi_{i}e_{i,r}^{k}]^{2}_{H^{1/2}(\Gamma_j^{\text{int}})} \leq 2C_{par}^{2}C(\Gamma_{j}^{\text{int}})\lVert \nabla \chi_{i}\rVert_{L^{\infty}(\Gamma_j^{\text{int}})}^{2}\|e_{i,r}^{k}\|_{L^{2}(\Gamma_j^{\text{int}})}^{2}
+    + 2\|\chi_{i}\|_{L^{\infty}(\Gamma_j^{\text{int}})}^{2}[e_{i, r}^{k}]_{H^{1/2}(\Gamma_j^{\text{int}})}^{2}.
+\end{align*}
+Note that if $n=2$, $C(\Gamma_{j}^{\text{int}}) = |\Gamma_{j}^{\text{int}}|^{2}$. Then, the $H^{1/2}$-norm can be estimated as
+\begin{equation*}
+    \|\chi_{i}e_{i,r}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}^{2} \leq \left(\|\chi_{i}\|_{L^{\infty}(\Gamma_j^{\text{int}})}^{2}+2C_{par}^{2}C(\Gamma_{j}^{\text{int}})\lVert 
+    \nabla \chi_{i}\rVert_{L^{\infty}(\Gamma_j^{\text{int}})}^{2}\right)\|e_{i,r}^{k}\|_{L^{2}(\Gamma_j^{\text{int}})}^{2} + 2\|\chi_{i}\|_{L^{\infty}(\Gamma_j^{\text{int}})}^{2}[e_{i, r}^{k}]_{H^{1/2}(\Gamma_j^{\text{int}})}^{2}.
+\end{equation*}
+Since, $W^{1, \infty}$-norm is defined as $\|f\|_{W^{1, \infty}(\Gamma_j^{\text{int}})} = \max\{\|f\|_{L^{\infty}(\Gamma_j^{\text{int}})}, \|\nabla f\|_{L^{\infty}(\Gamma_j^{\text{int}})}\}$, we get
+\begin{equation*}
+    \|\chi_{i}e_{i,r}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}^{2} \leq \left(1 + 2C_{par}^{2}C(\Gamma_{j}^{\text{int}})\right)\|\chi_{i}\|_{W^{1, \infty}(\Gamma_j^{\text{int}})}^{2}\|e_{i,r}^{k}\|_{L^{2}(\Gamma_j^{\text{int}})}^{2} + 2\|\chi_{i}\|_{W^{1, \infty}(\Gamma_j^{\text{int}})}^{2}[e_{i, r}^{k}]_{H^{1/2}(\Gamma_j^{\text{int}})}^{2},
+\end{equation*}
+which implies
+\begin{equation*}
+    \|\chi_{i}e_{i,r}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}^{2} \leq \max\{2, 1 + 2C_{par}^{2}C(\Gamma_{j}^{\text{int}})\}\|\chi_{i}\|_{W^{1, \infty}(\Gamma_j^{\text{int}})}^{2}\|e_{i,r}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}^{2}
+\end{equation*}
+Thus, we arrive at the following estimate for the $H^{1/2}$-norm of the error on the interface
+\begin{equation*}
+    \|e_{\psi_{j}}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})} \leq
+    \sum_{i\in\mathcal{N}_{j}}\left\lVert\chi_{i}(x)e_{i,r}^{k}\right\rVert_{H^{1/2}(\Gamma_j^{\text{int}})} \leq \sqrt{\max\{2, 1 + 2C_{par}^{2}C(\Gamma_{j}^{\text{int}})\}}\left(\sum_{i\in\mathcal{N}_{j}}\|\chi_{i}\|_{W^{1, \infty}(\Gamma_j^{\text{int}})}^{2}\|e_{i,r}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}^{2}\right)^{1/2}.
+\end{equation*}
+Finally, we have the following estimate for the lifting error
+\begin{equation*}
+    \|\delta_{j}^{k+1}(\cdot, t)\|_{H^{1}(\Omega_{j})} \leq C_{E}C_{frac}\left(\sum_{i\in\mathcal{N}_{j}}\|\chi_{i}\|_{W^{1, \infty}(\Gamma_j^{\text{int}})}^{2}\|e_{i,r}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}^{2}\right)^{1/2} + 2 C_{E}\int_{\Gamma_j^{\text{int}}} \int_{\Gamma_j^{\text{ext}}} \frac{|e_{\psi_{j}}^{k}(x)|^2}{|x-y|^{d}} \, d\sigma_y d\sigma_x.
+\end{equation*}
+If $\Omega_{j}$ is an interior subdomain, then $\Gamma_j^{\text{ext}} = \emptyset$, and we have
+\begin{equation*}
+    \|\delta_{j}^{k+1}(\cdot, t)\|_{H^{1}(\Omega_{j})} \leq C_{E}C_{frac}\left(\sum_{i\in\mathcal{N}_{j}}\|\chi_{i}\|_{W^{1, \infty}(\Gamma_j^{\text{int}})}^{2}\|e_{i,r}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}^{2}\right)^{1/2},                                                 
+\end{equation*}
+where $C_{frac} = \sqrt{\max\{2, 1 + 2C_{par}^{2}C(\Gamma_{j}^{\text{int}})\}}$ is the constant from the fractional Sobolev space estimate.
+This estimate shows that the lifting error can be controlled by the errors on the neighboring subdomains, which is crucial for the convergence of the overall method. 
+The constants in the estimate depend on the geometry of the subdomain and the choice of the partition of unity functions, but they are independent of the iteration number 
+$k$ and the reduced-order model used for the lifting. Now, we need to estimate $\|\chi_{i}\|_{W^{1, \infty}(\Gamma_j^{\text{int}})}$ and 
+$\|e_{i,r}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}$.
 
-\vspace{10pt}
-\noindent Let us recall that for $v(\cdot, t)\in H^{1}(\Omega_{l})$, we have the trace inequality
-\begin{equation*}
-    \left\lVert \text{Tr}_{\Gamma_{jl}}v(\cdot, t)\right\rVert_{H^{1/2}(\Gamma_{jl})} \leq C_{tr, jl}\left\lVert v(\cdot, t)\right\rVert_{H^{1}(\Omega_{l})}.
-\end{equation*}
-Then, the general estimate becomes
-\begin{align*}
-    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} &\leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}+ C_{j}\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1}(\Omega_{l})}+\\
-    &\quad + C_{eq}\sqrt{2}C_{j}e^{T/2}\left(\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}^{2}\int_{0}^{t}\left\lVert \partial_{t}e_{l,r}^{k}(\cdot, s)\right\rVert^{2}_{H^{1}(\Omega_{l})} + \left\lVert e_{l,r}^{k}(\cdot, s)\right\rVert^{2}_{H^{1}(\Omega_{l})}\,ds\right)^{1/2}.
-\end{align*}
-Let us introduce
-\begin{align*}
-    E_{j, r}^{k+1}(t) &= \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})},\\
-    R_{j}^{k+1}(t) &= \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2},\\
-    L_{j, r}^{k}(t) &= C_{j}\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1}(\Omega_{l})} + C_{eq}\sqrt{2}C_{j}e^{T/2}\left(\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}^{2}\int_{0}^{t}\left\lVert \partial_{t}e_{l,r}^{k}(\cdot, s)\right\rVert^{2}_{H^{1}(\Omega_{l})} + \left\lVert e_{l,r}^{k}(\cdot, s)\right\rVert^{2}_{H^{1}(\Omega_{l})}\,ds\right)^{1/2}.
-\end{align*}
-Note that if we take a \textbf{harmonic lifting}, then $L_{j}^{k}(t)$ reduces to
-\begin{equation*}
-    L_{j, r}^{k}(t) = C_{j}\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1}(\Omega_{l})} + C_{eq}\sqrt{2}C_{j}e^{T/2}\left(\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}^{2}\int_{0}^{t}\left\lVert \partial_{t}e_{l,r}^{k}(\cdot, s)\right\rVert^{2}_{H^{1}(\Omega_{l})}\,ds\right)^{1/2},
-\end{equation*}
-whereas for a \textbf{parabolic lifting}, it reduces to
-\begin{equation*}    L_{j, r}^{k}(t) = C_{j}\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1}(\Omega_{l})}.
-\end{equation*}
-Notice that in the case of parabolic lifting, we have 
-\begin{equation*}
-    L_{j, r}^{k}(t) = C_{j}\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}E_{l, r}^{k}(t).
-\end{equation*}
-For the sake of simplicity, let us consider the parabolic lifting case, i.e.,
-\begin{align*}
-    \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} \leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}+ C_{j}\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}\left\lVert e_{l, r}^{k}(\cdot, t)\right\rVert_{H^{1}(\Omega_{l})},
-\end{align*}
-or equivalently,
-\begin{equation*}
-    E_{j, r}^{k+1}(t) \leq R_{j}^{k+1}(t) + C_{j}\sum_{l\in\mathcal{N}_{j}}C_{tr, jl}E_{l, r}^{k}(t),
-\end{equation*}
-where for the first iteration we have
-\begin{equation*}
-    E_{j, r}^{1}(t) \leq R_{j}^{1}(t).
-\end{equation*}
-For $k=1$,
-\begin{equation*}
-    E_{j,r}^{2}(t) \leq R_{j}^{2}(t) + C_j \sum_{l \in \mathcal{N}_j} C_{tr,jl}E_{l,r}^{1}(t).
-\end{equation*}
-Using $E_{l,r}^{1}(t) \leq R_{l}^{1}(t)$, we obtain
-\begin{equation*}
-    E_{j,r}^{2}(t) \leq R_{j}^{2}(t) + C_j \sum_{l \in\mathcal{N}_j}
-    C_{tr,jl}R_{l}^{1}(t).
-\end{equation*}
-For $k=2$,
-\begin{equation*}
-    E_{j,r}^{3}(t) \leq R_{j}^{3}(t) + C_j \sum_{l \in\mathcal{N}_j}
-    C_{tr,jl} E_{l,r}^{2}(t).
-\end{equation*}
-Inserting the previous bound yields
-\begin{align*}
-    E_{j,r}^{3}(t) \leq R_{j}^{3}(t) + C_j \sum_{l \in \mathcal{N}_j}
-    C_{tr,jl} \left(R_{l}^{2}(t) + C_l \sum_{m \in \mathcal{N}_l}C_{tr,lm}\, R_{m}^{1}(t)\right).
-\end{align*}
-Define
-\begin{equation*}
-    E^{k}(t) = \left(E_{1,r}^{k}(t), \dots, E_{N,r}^{k}(t)\right)^{T}, \qquad R^{k}(t) = \left(R_{1}^{k}(t), \dots, R_{N}^{k}(t)\right)^{T}.
-\end{equation*}
-Introduce the nonnegative matrix $A=(A_{jl})$ defined by
-\begin{equation*}
-    A_{jl} =
-    \begin{cases}
-        C_j C_{tr,jl}, & l \in \mathcal{N}_j, \\
-        0, & \text{otherwise}.
-    \end{cases}
-\end{equation*}
-Then the recursion can be written as
-\begin{equation*}
-    E^{k+1}(t) \leq R^{k+1}(t) + AE^{k}(t),
-\end{equation*}
-where the inequality is understood componentwise. By induction one obtains
-\begin{equation*}
-    E^{k+1}(t) \leq \sum_{m=0}^{k} A^{m}R^{k+1-m}(t).
-\end{equation*}
-If
-\begin{equation*}
-    R^{k}(t) \leq R(t) \quad \text{for all } k,
-\end{equation*}
-then
-\begin{equation*}
-    E^{k+1}(t) \leq \left(I + A + A^2 + \dots + A^k \right)R(t).
-\end{equation*}
-If the spectral radius satisfies
-\begin{equation*}
-    \rho(A) < 1,
-\end{equation*}
-then the Neumann series converges and
-\begin{equation*}
-    I + A + A^2 + \dots = (I - A)^{-1}.
-\end{equation*}
-Consequently,
-\begin{equation*}
-    \sup_k E^{k}(t) \leq (I - A)^{-1} R(t).
-\end{equation*}
+\subsection{Special case: 1D Domain}
+For 1D case, everything will be discussed, including the choice of liftings, the error estimates, and the convergence analysis.
+
 
 \section{Discretization and Implementation}
 \subsection{Overlapping Parallel Schwarz Waveform Relaxation}

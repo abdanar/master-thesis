@@ -40,8 +40,8 @@ problem1D = HeatProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = e
 # Solve the 1D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
 heat_solution1D = problem1D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5)
 
-# Define Schwarz problem with 2 subdomains and overlap of 1 layer of elements with version 2 of the decomposition algorithm
-oswrproblem1D = OSWRProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D, n = 2, overlap = 1, version = 2)
+# Define Schwarz problem with 2 subdomains and overlap of 1 layer of elements with version 1 of the decomposition algorithm
+oswrproblem1D = OSWRProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D, n = 2, overlap = 1, version = 1)
 
 # Solve the problem using the Schwarz method with RAS, nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
 oswr_solution1D = oswrproblem1D.solve(time_grid = time_grid, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 150, tol = 1e-12)
@@ -96,8 +96,8 @@ problem2D = HeatProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = e
 # Solve the 2D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
 heat_solution2D = problem2D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5)
 
-# Define Schwarz problem with 3 subdomains and overlap of 1 layer of elements with version 2 of the decomposition algorithm
-oswrproblem2D = OSWRProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D, n = 3, overlap = 1, version = 2)
+# Define Schwarz problem with 3 subdomains and overlap of 1 layer of elements with version 1 of the decomposition algorithm
+oswrproblem2D = OSWRProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D, n = 3, overlap = 1, version = 1)
 
 # Solve the problem using the Schwarz method with RAS, nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
 oswr_solution = oswrproblem2D.solve(time_grid = time_grid, theta = 0.5, lift = 'nodal', method = 'RAS', omega = 1.0, maxiter = 150, tol = 1e-12)

@@ -3,11 +3,13 @@ import utils.logger as log
 import scipy.sparse as sp
 from fom.heat import HeatProblem
 from fem.linearsolver import DirectSolver, LinearSolver
+from typing import Optional
+from scipy.linalg import cholesky, solve_triangular
 
 logger = log.setup_logger(__name__, level = 'info')
 
 class POD:
-    def __init__(self, heat_problem: HeatProblem, ntime: int, lift: str, theta: float, r: int, energy_tol: float = 0.999, solver: LinearSolver = DirectSolver()):
+    def __init__(self, heat_problem: HeatProblem, ntime: int, lift: str, theta: float, r: int, weight: Optional[np.ndarray] = None, energy_tol: float = 0.999, solver: LinearSolver = DirectSolver()):
         """
         Proper Orthogonal Decomposition (POD) for model order reduction of the Heat problem.
 
@@ -23,6 +25,8 @@ class POD:
             Theta parameter for the time integration scheme.
         r : int
             Fixed reduced dimension.
+        weight : np.ndarray, optional
+            Weight matrix for the inner product (used in weighted POD).
         energy_tol : float
             Energy threshold (used if r is None).
         solver : LinearSolver
@@ -35,6 +39,7 @@ class POD:
         self.solver = solver
         self.r = r
         self.energy_tol = energy_tol
+        self.weight = weight
 
         # Compute POD basis
         self.V, self.singular_values = self.compute_modes()
@@ -45,10 +50,20 @@ class POD:
     def compute_modes(self):
         logger.info("Computing snapshots for POD...")
         snapshot_matrix = self.compute_snapshots()
-        V, S, _ = np.linalg.svd(snapshot_matrix, full_matrices=False)
+
+        if self.weight is None:
+            V, S, _ = np.linalg.svd(snapshot_matrix, full_matrices=False)
+        else:
+            L = cholesky(self.weight, lower=True)
+            V, S, _ = np.linalg.svd(L @ snapshot_matrix, full_matrices=False)
+
         if self.r is not None:
             r = self.r
         else:
             energy = np.cumsum(S**2) / np.sum(S**2)
             r = np.searchsorted(energy, self.energy_tol) + 1
-        return V[:, :r], S[:r]
+
+        if self.weight is not None:
+            return solve_triangular(L, V[:, :r], lower=True), S[:r]
+        else:
+            return V[:, :r], S[:r]

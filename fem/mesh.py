@@ -843,6 +843,25 @@ class Mesh:
         element = np.asarray(element)
         return bool(np.isin(element, self.boundary_nodes()).any())
 
+    def diam(self) -> float:
+        """
+        Compute the diameter of the mesh, defined as the maximum distance between any two vertices.
+
+        Returns
+        -------
+        float
+            The diameter of the mesh.
+        """
+        if self.dim == 1:
+            a, b = self.boundary_nodes_coord()
+            return np.abs(b-a)
+        elif self.dim == 2:
+            from scipy.spatial import distance_matrix
+            dist_matrix = distance_matrix(self.vertices, self.vertices)
+            return np.max(dist_matrix)
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+
     def _local_boundary_vertices(self, elements: np.ndarray) -> np.ndarray:
         if self.dim == 1:
             arr = elements.ravel()

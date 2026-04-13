@@ -463,6 +463,8 @@ class ROSWRProblem():
             subfoms = HeatProblem(femspace = subfem, t0 = self.t0, T = self.T, f = self.f, g = g_local, h = self.h)
             subroms[subdomain.domainID] = ReducedHeatProblem(heat_problem = subfoms, V = projs[subdomain.domainID])
 
+        self.subproblems = subroms
+
         # Reduced Schwarz Waveform Relaxation iteration
         error: float = float("inf")
         for iter in range(maxiter):

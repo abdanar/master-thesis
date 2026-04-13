@@ -1,16 +1,16 @@
 # Fdb version 4
-["bibtex oswr"] 1775938149.62401 "oswr.aux" "oswr.bbl" "oswr" 1775938271.48349 0
+["bibtex oswr"] 1776011396.74315 "oswr.aux" "oswr.bbl" "oswr" 1776011655.65314 0
   "./oswrreferences.bib" 1775478410.20333 2677 08247a294947896180f3480295d73e5a ""
   "/usr/share/texlive/texmf-dist/bibtex/bst/base/plain.bst" 1292289607 20613 bd3fbfa9f64872b81ac57a0dd2ed855f ""
-  "oswr.aux" 1775938271.35603 6934 ad229292ee5e94a2e11b2b21ff99e4a9 "pdflatex"
+  "oswr.aux" 1776011655.41138 6934 074c2ad19d78ee8ee65fd05527847b82 "pdflatex"
   (generated)
   "oswr.bbl"
   "oswr.blg"
   (rewritten before read)
-["pdflatex"] 1775938270.08417 "/home/abdanar/thesis/text/oswr.tex" "oswr.pdf" "oswr" 1775938271.48366 0
+["pdflatex"] 1776011651.73367 "/home/abdanar/thesis/text/oswr.tex" "oswr.pdf" "oswr" 1776011655.65367 0
   "/etc/texmf/web2c/texmf.cnf" 1754315876.30907 475 c0e671620eb5563b2130f56340a5fde8 ""
   "/home/abdanar/.texlive2023/texmf-var/fonts/pk/ljfour/jknappen/ec/tcrm1095.600pk" 1775478441.08134 12644 8f24c54762c55c9047fad760086aa176 ""
-  "/home/abdanar/thesis/text/oswr.tex" 1775938269.75362 204427 8033b8b54244b236e6c97eb597ca5d03 ""
+  "/home/abdanar/thesis/text/oswr.tex" 1776011651.2576 213964 6693ade4f76ea9256d237b465f6f99cd ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/jknappen/ec/tcrm1095.tfm" 1136768653 1536 02c06700a42be0f5a28664c7273f82e7 ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/cmextra/cmbsy6.tfm" 1246382020 1124 14ccf5552bc7f77ca02a8a402bea8bfb ""
@@ -253,10 +253,10 @@
   "delta.jpg" 1775478409.80615 17337 c07c54dbb4d5e408d60140bada6e9277 ""
   "img1.jpg" 1775478409.96739 43783 44b3c6b133852e2f64b875c04acfc516 ""
   "img2.jpg" 1775478410.02429 41713 f70319f38156ec7d05b04f3bf0caff27 ""
-  "oswr.aux" 1775938271.35603 6934 ad229292ee5e94a2e11b2b21ff99e4a9 "pdflatex"
-  "oswr.bbl" 1775938149.63275 1312 d6dbd3b53532cced0d9dbfc44752756c "bibtex oswr"
-  "oswr.out" 1775938271.35603 3272 0239cd2ea4aaabd420a0852e4d3765c9 "pdflatex"
-  "oswr.tex" 1775938269.75362 204427 8033b8b54244b236e6c97eb597ca5d03 ""
+  "oswr.aux" 1776011655.41138 6934 074c2ad19d78ee8ee65fd05527847b82 "pdflatex"
+  "oswr.bbl" 1776011396.76281 1312 d6dbd3b53532cced0d9dbfc44752756c "bibtex oswr"
+  "oswr.out" 1776011655.41138 3272 0239cd2ea4aaabd420a0852e4d3765c9 "pdflatex"
+  "oswr.tex" 1776011651.2576 213964 6693ade4f76ea9256d237b465f6f99cd ""
   (generated)
   "oswr.aux"
   "oswr.log"

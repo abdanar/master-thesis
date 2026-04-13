@@ -450,19 +450,18 @@ class OSWRProblem():
         # Create Heat problems for each subdomain
         subproblems = {}
 
-        # The dictionary that contains the subdomain-specific finite element spaces with keys to be domainID 
-        self.subfems = {}
-
         domain = self.femspace.domain
         space = self.femspace.space
         degree = self.femspace.degree
 
         for subdomain in self.subdomains:
             subfem = FEMSpace(mesh = subdomain, domain = domain, space = space, degree = degree)
-            self.subfems[subdomain.domainID] = subfem
             g_local = self.construct_dirichlet_bc(subfemspace = subfem, data = data, method = method, domainID = subdomain.domainID)
             subproblems[subdomain.domainID] = HeatProblem(femspace = subfem, t0 = self.t0, T = self.T, f = self.f, g = g_local, h = self.h)
 
+        # Store the subproblems in the instance for potential later use (e.g., for error analysis, visualization, etc.)
+        self.subproblems = subproblems
+    
         # Overlapping Schwarz Waveform Relaxation iterations
         error: float = float("inf")
         for iter in range(maxiter):

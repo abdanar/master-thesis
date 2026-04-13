@@ -316,7 +316,7 @@ class FEMSpace:
         assembler = Assembler(self)
 
         # Assemble the mass matrix and load vector for the projection
-        mass_matrix = assembler.global_mass_matrix(reaction = reaction)
+        mass_matrix = assembler.global_reaction_matrix(reaction = reaction)
         rhs = assembler.global_load_vector(func = f)
 
         indices = dofs if boundary is None else np.setdiff1d(dofs, boundary.dirichlet_nodes)
@@ -340,6 +340,50 @@ class FEMSpace:
         coef = np.zeros(self.mesh.nnodes())
         coef[indices] = cfree
         return coef
+    
+    def poincare(self, is_convex: bool = False):
+        """
+        Compute the Poincaré constant C_p
+
+            ||u||_{L²(Ω)} ≤ C_p ||∇u||_{L²(Ω)} 
+        
+        for all u in H1(Ω) satifying ∫_Ω u dx = 0. This constant depends 
+        on the geometry of the domain Ω.
+
+        For convex domains this constant is optimal and can be computed as 
+            C_p = diam(Ω)/π. 
+        For non-convex domains, we compute the smallest positive eigenvalue λ₁ 
+        of the Laplacian with homogeneous Dirichlet boundary conditions and 
+        use C_p = 1/√λ₁.
+
+        Parameters
+        ----------
+        is_convex : bool, optional
+            Indicates whether the domain is convex. Default is False.
+
+        Returns
+        -------
+        float
+            The Poincaré constant C_p for the domain Ω.
+
+        References
+        ----------
+        - For convex domains: A Note on the Poincaré Inequality for Convex Domains by Mario Bebendorf
+        """
+        if self.dim == 1:
+            return self.mesh.diam()/np.pi
+        elif self.dim == 2:
+            if is_convex:
+                return self.mesh.diam()/np.pi
+            else:
+                from scipy.sparse.linalg import eigsh
+                assembler = Assembler(self)
+                mass_matrix = assembler.global_reaction_matrix(reaction = lambda x, y: 1)
+                stiffness_matrix = assembler.global_stiffness_matrix(diffusion = lambda x, y: np.eye(2))
+                lambda1 = eigsh(stiffness_matrix, M=mass_matrix, k=1, which='SM', return_eigenvectors=False)[0]
+                return 1.0 / np.sqrt(lambda1)
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
 
     # change for 1d
     def get_physical_element(self, element_index: int) -> PhysicalElement:

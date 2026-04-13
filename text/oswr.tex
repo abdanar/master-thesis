@@ -1274,10 +1274,12 @@ and using $(a+b)^{2}\leq 2a^{2}+2b^2$, $\sqrt{a+b}\leq \sqrt{a} + \sqrt{b}$
     & + \left(\int_{0}^{t}2\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2}.
 \end{align*}
 Thus, we get
-\begin{align*}
+\[\boxed{
+\begin{aligned}
     \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} &\leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + \sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}\\
     &\quad +\left\lVert\delta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + \sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2},
-\end{align*}
+\end{aligned}
+}\]
 or in the $H^1$-norm
 \begin{align*}
     \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} &\leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{H^{1}(\Omega_{j})} + C_{eq}\sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}\\
@@ -1420,7 +1422,136 @@ $k$ and the reduced-order model used for the lifting. Now, we need to estimate $
 $\|e_{i,r}^{k}\|_{H^{1/2}(\Gamma_j^{\text{int}})}$.
 
 \subsection{Special case: 1D Domain}
-For 1D case, everything will be discussed, including the choice of liftings, the error estimates, and the convergence analysis.
+For 1D case, everything will be discussed, including the choice of liftings, the error estimates, 
+and the convergence analysis. We will consider three types of liftings: nodal, harmonic and parabolic
+liftings. Before we start, let us consider the 1D domain $\Omega = (a, b)$, which is decomposed into 
+$n$ overlapping subdomains $\Omega_j = (a_j, b_j)$ for $j = 1, \ldots, n$. Then, the boundary function
+is defined by
+\begin{equation*}
+    \psi_{j}^{k}(a_j, t) = u_{j-1}^{k}(a_j, t), \qquad \psi_{j}^{k}(b_j, t) = u_{j+1}^{k}(b_j, t)
+\end{equation*}
+for $j = 2, \ldots, n-1$, and for the first and last subdomains, we have
+\begin{equation*}
+    \psi_{1}^{k}(a_1, t) = g(a, t), \qquad \psi_{1}^{k}(b_1, t) = u_{2}^{k}(b_1, t), \qquad \psi_{n}^{k}(a_n, t) = u_{n-1}^{k}(a_n, t), \qquad \psi_{n}^{k}(b_n, t) = g(b, t).
+\end{equation*}
+\begin{enumerate}[label = (\arabic*)]
+    \item The nodal lifting is defined by
+    \begin{equation*}
+        l_{j}^{k+1}(x, t) := \sum_{p\in B_{j}}\psi_{j}^{k}(x^{j}_{p}, t)\phi^{j}_{p}(x),
+    \end{equation*}
+    and reduced nodal lifting is defined by
+    \begin{equation*}
+        l_{j, r}^{k+1}(x, t) := \sum_{p\in B_{j}}\psi_{j, r}^{k}(x^{j}_{p}, t)\phi^{j}_{p}(x).
+    \end{equation*}
+    Then, the lifting error can be written as
+    \begin{equation*}
+        \delta_{j}^{k+1}(x, t) = l_{j}^{k+1}(x, t) - l_{j, r}^{k+1}(x, t) = \sum_{p\in B_{j}}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\phi^{j}_{p}(x).
+    \end{equation*}
+    Since $\phi^{j}_{p}(x)$ are the nodal basis functions, we have $\phi^{j}_{p}(x^{j}_{q}) = \delta_{pq}$, which implies that
+    \begin{equation*}
+        \delta_{j}^{k+1}(x^{j}_{q}, t) = \sum_{p\in B_{j}}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\phi^{j}_{p}(x^{j}_{q}) = \psi_{j}^{k}(x^{j}_{q}, t) - \psi_{j, r}^{k}(x^{j}_{q}, t).
+    \end{equation*}
+    Let us now compute the norms of the lifting error, i.e., $\lVert\delta_{j}^{k+1}(\cdot, t)\rVert_{L^{2}(\Omega_{j})}$,
+    $\lVert\partial_{t}\delta_{j}^{k+1}(\cdot, t)\rVert_{L^{2}(\Omega_{j})}$ and $\lVert\nabla \delta_{j}^{k+1}(\cdot, t)\rVert_{L^{2}(\Omega_{j})}$. 
+    Since $\delta_{j}^{k+1}(x, t)$ is a linear combination of the nodal basis functions, we can write
+    \begin{align*}
+        \partial_{t}\delta_{j}^{k+1}(x, t) &= \sum_{p\in B_{j}}\partial_{t}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\phi^{j}_{p}(x),\\
+        \nabla \delta_{j}^{k+1}(x, t) &= \sum_{p\in B_{j}}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\nabla \phi^{j}_{p}(x).
+    \end{align*}
+    Then, we can exactly compute the norms as
+    \begin{align*}
+        \lVert\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} &= \left(\sum_{p\in B_{j}}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\phi^{j}_{p}(x), \sum_{p\in B_{j}}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\phi^{j}_{p}(x)\right)_{\Omega_{j}},\\
+        \lVert\partial_{t}\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} &= \left(\sum_{p\in B_{j}}\partial_{t}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\phi^{j}_{p}(x), \sum_{p\in B_{j}}\partial_{t}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\phi^{j}_{p}(x)\right)_{\Omega_{j}},\\
+        \lVert\nabla \delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} &= \left(\sum_{p\in B_{j}}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\nabla \phi^{j}_{p}(x), \sum_{p\in B_{j}}(\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t))\nabla \phi^{j}_{p}(x)\right)_{\Omega_{j}}.
+    \end{align*}   
+    Let us introduce the vector of boundary differences $\mathbf{d}_{j}^{k}(t)\in \mathbb{R}^{|B_{j}|}$ defined by
+    \begin{equation*}
+        \mathbf{d}_{j}^{k}(t) := \left[\psi_{j}^{k}(x^{j}_{p}, t) - \psi_{j, r}^{k}(x^{j}_{p}, t)\right]_{p\in B_{j}}.
+    \end{equation*}
+    Then, we can write the norms in a compact form as
+    \begin{align*}
+        \lVert\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} &= \mathbf{d}_{j}^{k}(t)^{T} M_{j, BB} \mathbf{d}_{j}^{k}(t),\\
+        \lVert\partial_{t}\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} &= \partial_{t}\mathbf{d}_{j}^{k}(t)^{T} M_{j, BB} \partial_{t}\mathbf{d}_{j}^{k}(t),\\
+        \lVert\nabla \delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} &= \mathbf{d}_{j}^{k}(t)^{T} K_{j, BB} \mathbf{d}_{j}^{k}(t),
+    \end{align*}
+    where $M_{j, BB}$ and $K_{j, BB}$ are the mass and stiffness matrices associated with the nodal basis functions $\{\phi^{j}_{p}\}_{p\in B_{j}}$, defined by
+    \begin{equation*}
+        (M_{j, BB})_{pq} = (\phi^{j}_{p}, \phi^{j}_{q})_{\Omega_{j}}, \qquad (K_{j, BB})_{pq} = (\nabla \phi^{j}_{p}, \nabla \phi^{j}_{q})_{\Omega_{j}}.
+    \end{equation*}
+    Then, we have the bounds
+    \begin{align*}
+        \lVert\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} &\leq \sqrt{\lambda_{max}(M_{j, BB})}\lVert \mathbf{d}_{j}^{k}(t) \rVert_{2} = C_{mass}\lVert \mathbf{d}_{j}^{k}(t) \rVert_{2}, \\
+        \lVert\partial_{t}\delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} &\leq \sqrt{\lambda_{max}(M_{j, BB})}\lVert \partial_{t}\mathbf{d}_{j}^{k}(t) \rVert_{2} = C_{mass}\lVert \partial_{t}\mathbf{d}_{j}^{k}(t) \rVert_{2}, \\
+        \lVert\nabla \delta_{j}^{k+1}(\cdot, t)\rVert^{2}_{L^{2}(\Omega_{j})} &\leq \sqrt{\lambda_{max}(K_{j, BB})}\lVert \mathbf{d}_{j}^{k}(t) \rVert_{2} = C_{stiff}\lVert \mathbf{d}_{j}^{k}(t) \rVert_{2},
+    \end{align*}
+    
+    \begin{align*}
+        \left\lVert e_{j, r}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} &\leq \left\lVert\eta_{j}^{k+1}(\cdot, t)\right\rVert_{L^{2}(\Omega_{j})} + \sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\eta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})}ds\right)^{1/2}\\
+        &\quad + C_{mass}\lVert \mathbf{d}_{j}^{k}(t) \rVert_{2} + \sqrt{2}e^{T/2}\left(\int_{0}^{t}\left\lVert \partial_{t}\delta_{j}^{k+1}(\cdot, s)\right\rVert^{2}_{L^{2}(\Omega_{j})} +\lVert \nabla \delta_{j}^{k+1}\rVert^{2}_{L^{2}(\Omega_{j})}\,ds\right)^{1/2},
+    \end{align*}
+
+    \item Let $\Omega_{j} = (a_{j}, b_{j})$. Then the harmonic lifting $l_{j}^{k+1}$ solves
+    \begin{align*}
+        l_{j}^{''k+1}(x, t) &= 0,  \quad x\in \Omega_{j},\\
+        l_{j}^{k+1}(a_{j}, t) &= \psi_{j}^{k}(a_{j}, t),\\
+        l_{j}^{k+1}(b_{j}, t) &= \psi_{j}^{k}(b_{j}, t),
+    \end{align*}
+    and the reduced harmonic lifting $l_{j, r}^{k+1}$ solves
+    \begin{align*}
+        l_{j, r}^{''k+1}(x, t) &= 0, \quad x\in \Omega_{j},\\
+        l_{j, r}^{k+1}(a_{j}, t) &= \psi_{j, r}^{k}(a_{j}, t),\\
+        l_{j, r}^{k+1}(b_{j}, t) &= \psi_{j, r}^{k}(b_{j}, t).
+    \end{align*}
+    Then, the lifting error $\delta_{j}^{k+1} = l_{j}^{k+1} - l_{j, r}^{k+1}$ solves
+    \begin{align*}
+        \delta_{j}^{''k+1}(x, t) = 0, & \quad x\in \Omega_{j},\\
+        \delta_{j}^{k+1}(a_{j}, t) &= \psi_{j}^{k}(a_{j}, t) - \psi_{j, r}^{k}(a_{j}, t),\\
+        \delta_{j}^{k+1}(b_{j}, t) &= \psi_{j}^{k}(b_{j}, t) - \psi_{j, r}^{k}(b_{j}, t)
+    \end{align*} 
+    for each $t\in (0, T)$. The solution of this problem can be explicitly written as
+    \begin{equation*}
+        \delta_{j}^{k+1}(x, t) = \frac{b_{j} - x}{b_{j} - a_{j}}(\psi_{j}^{k}(a_{j}, t) - \psi_{j, r}^{k}(a_{j}, t)) + \frac{x - a_{j}}{b_{j} - a_{j}}(\psi_{j}^{k}(b_{j}, t) - \psi_{j, r}^{k}(b_{j}, t)),
+    \end{equation*}
+    or
+    \begin{equation*}
+        \delta_{j}^{k+1}(x, t) = \frac{b_{j} - x}{h_{j}}e_{\psi_{j}}^{k}(a_{j}, t) + \frac{x - a_{j}}{h_{j}}e_{\psi_{j}}^{k}(b_{j}, t),
+    \end{equation*}
+    where
+    \begin{equation*}
+        e_{\psi_{j}}^{k}(x, t) = \psi_{j}^{k}(x, t) - \psi_{j, r}^{k}(x, t), \qquad h_{j} = b_{j} - a_{j}.
+    \end{equation*}
+    Note that
+    \begin{equation*}
+        e_{\psi_{j}}^{k}(a_{j}, t) = u_{j-1}^{k}(a_j, t) - u_{j-1, r}^{k}(a_j, t) = e_{j-1, r}^{k}(a_j, t), \quad 
+        e_{\psi_{j}}^{k}(b_{j}, t) = u_{j+1}^{k}(b_j, t) - u_{j+1, r}^{k}(b_j, t) = e_{j+1, r}^{k}(b_j, t),
+    \end{equation*}
+    for $j = 2,\ldots,n-1$ and for the first and last subdomains, we have
+    \begin{align*}
+        e_{\psi_{1}}^{k}(a_1, t) &= 0, \quad e_{\psi_{1}}^{k}(b_1, t) = u_{2}^{k}(b_1, t) - u_{2, r}^{k}(b_1, t),\\
+        e_{\psi_{n}}^{k}(a_n, t) &= u_{n-1}^{k}(a_n, t) - u_{n-1, r}^{k}(a_n, t), \quad e_{\psi_{n}}^{k}(b_n, t) = 0.
+    \end{align*}
+
+    Then, we have
+    \begin{align*}
+        \delta_{j}^{'k+1}(x, t) &= \frac{1}{b_{j} - a_{j}}(e_{\psi_{j}}^{k}(b_{j}, t) - e_{\psi_{j}}^{k}(a_{j}, t)),\\
+        \dot{\delta}_{j}^{k+1}(x, t) &= \frac{b_{j} - x}{b_{j} - a_{j}}\dot{e}_{\psi_{j}}^{k}(a_{j}, t) + \frac{x - a_{j}}{b_{j} - a_{j}}\dot{e}_{\psi_{j}}^{k}(b_{j}, t).
+    \end{align*}
+    We can compute the norms exactly
+    \begin{align*}
+        \lVert \delta_{j}^{k+1}(\cdot, t)\rVert_{L^{2}(\Omega_{j})}^{2} &= \frac{h_{j}}{3}\left(e_{\psi_{j}}^{k}(a_{j}, t)^{2} + e_{\psi_{j}}^{k}(a_{j}, t)e_{\psi_{j}}^{k}(b_{j}, t) + e_{\psi_{j}}^{k}(b_{j}, t)^{2}\right),\\
+        \lVert \delta_{j}^{'k+1}(\cdot, t)\rVert_{L^{2}(\Omega_{j})}^{2} &= \frac{1}{h_{j}}\left(e_{\psi_{j}}^{k}(b_{j}, t) - e_{\psi_{j}}^{k}(a_{j}, t)\right)^{2},\\
+        \lVert \dot{\delta}_{j}^{k+1}(\cdot, t)\rVert_{L^{2}(\Omega_{j})}^{2} &= \frac{h_{j}}{3}\left(\dot{e}_{\psi_{j}}^{k}(a_{j}, t)^{2} + \dot{e}_{\psi_{j}}^{k}(a_{j}, t)\dot{e}_{\psi_{j}}^{k}(b_{j}, t) + \dot{e}_{\psi_{j}}^{k}(b_{j}, t)^{2}\right).
+    \end{align*}
+    
+    \begin{equation*}
+        |e_{\psi_{j}}^{k}(b_{j}, t) - e_{\psi_{j}}^{k}(a_{j}, t)| \leq \int_{a_j}^{b_j}|e_{\psi_{j}}^{k}(x, t)|\,dx
+        \leq \sqrt{h_{j}} \lVert e_{\psi_{j}}^{k}(\cdot, t)\rVert_{L^{2}(\Omega_{j})}
+    \end{equation*}
+
+
+    
+    
+\end{enumerate}
 
 
 \section{Discretization and Implementation}

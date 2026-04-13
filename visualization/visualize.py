@@ -54,41 +54,108 @@ class SolutionVisualizer:
         self.dt = dt
         self.ntime = u.shape[1] if dt is not None and u.ndim == 2 else 1
 
-    def visualize(self, cmap = 'viridis', levels = 50, figsize = (6, 5), dpi = 150):
-
+    def visualize(self,
+                xlabel: str = "Iteration number",
+                ylabel: str = r"$\| u_h - u \|_{L^2}$",
+                title: str = r"Iteration vs $L^{2}$ Error",
+                grid: bool = True,
+                logscale: bool = False,
+                cmap: str = 'viridis',
+                levels: int = 50,
+                figsize=(6, 5),
+                dpi: int = 150,
+                save_path: Optional[str] = None,
+                **kwargs):
         """
-        Plot FEM solution for 2D triangular mesh with linear Lagrange elements (degree 1).
+        Visualize the FEM solution for 1D or 2D meshes and optionally save the figure.
+
+        For 1D meshes, a line plot of the solution is produced.
+        For 2D meshes, a filled contour plot over a triangulation is generated.
 
         Parameters
         ----------
+        xlabel : str, optional
+            Label for the x-axis (default: "Iteration number").
+        ylabel : str, optional
+            Label for the y-axis (default: r"$\\| u_h - u \\|_{L^2}$").
+        title : str, optional
+            Title of the plot (default: r"Iteration vs $L^{2}$ Error").
+        grid : bool, optional
+            If True, display a background grid (default: True).
+        logscale : bool, optional
+            If True, apply logarithmic scaling:
+            - 1D: logarithmic y-axis
+            - 2D: logarithmic color scaling (uses |u| + ε to avoid log(0)) (default: False).
         cmap : str, optional
-            Colormap for contour plot (default 'viridis').
+            Colormap used for 2D contour plots (default: 'viridis').
         levels : int, optional
-            Number of contour levels (default 50).
+            Number of contour levels for 2D plots (default: 50).
+        figsize : tuple, optional
+            Figure size in inches (width, height) (default: (6, 5)).
+        dpi : int, optional
+            Resolution of the figure in dots per inch (default: 150).
+        save_path : str, optional
+            If provided, saves the figure to the given path (e.g., "plot.png" or "plot.pdf").
+            If None, the figure is not saved (default: None).
+        **kwargs : dict
+            Additional keyword arguments passed to the plotting functions:
+            - 1D: matplotlib.pyplot.plot (e.g., color='b', linestyle='-')
+            - 2D: matplotlib.pyplot.tricontourf (e.g., edgecolors='k')
+
+        Raises
+        ------
+        ValueError
+            If the mesh dimension is not supported (only 1D and 2D are supported).
+
+        Notes
+        -----
+        - For FEM consistency, solution values are flattened using `.ravel()`.
+        - Log scaling in 2D uses `|u| + 1e-14` to avoid numerical issues.
+        - Saving with `.pdf` is recommended for publication-quality (vector graphics).
         """
+        plt.figure(figsize=figsize, dpi=dpi)
+        if self.mesh.dim == 1:
+            x = self.mesh.vertices
+            u = self.u.ravel()
+            plt.plot(x, u, **kwargs)
+            if logscale:
+                plt.yscale('log')
+            plt.xlabel(xlabel)
+            plt.ylabel(ylabel)
+            plt.title(title)
+        elif self.mesh.dim == 2:
+            from matplotlib.colors import LogNorm
+            x = self.mesh.vertices[:, 0]
+            y = self.mesh.vertices[:, 1]
+            u = self.u.ravel()
+            triang = mtri.Triangulation(x, y, self.mesh.elements)
+            if logscale:
+                u_plot = np.abs(u) + 1e-14
+                contour = plt.tricontourf(triang, u_plot, levels=levels, cmap=cmap, norm=LogNorm(vmin=u_plot.min(), vmax=u_plot.max()))
+            else:
+                contour = plt.tricontourf(triang, u, levels=levels, cmap=cmap)
+            plt.triplot(triang, color='k', linewidth=0.3, alpha=0.5)
+            plt.colorbar(contour, label='Solution $u$')
+            plt.gca().set_aspect('equal')
+            plt.xlabel(xlabel)
+            plt.ylabel(ylabel)
+            plt.title(title)
+        else:
+            raise ValueError("Unsupported mesh dimension for visualization")
 
-        # Use mesh vertices and elements
-        vertices = self.mesh.vertices
-        elements = self.mesh.elements
+        # Common settings
+        if grid:
+            plt.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+        plt.tick_params(direction='in', which='both', top=True, right=True)
+        plt.tight_layout()
 
-        x = vertices[:, 0]
-        y = vertices[:, 1]
+        # Save figure
+        if save_path is not None:
+            plt.savefig(save_path, bbox_inches='tight', dpi=dpi)
 
-        # Create a triangulation
-        triang = mtri.Triangulation(x, y, elements)
-
-        # Plot filled contour
-        plt.figure(figsize = figsize, dpi = dpi)
-        plt.tricontourf(triang, self.u.ravel(), levels = levels, cmap = cmap)
-        plt.triplot(triang, color = 'k', linewidth = 0.5, alpha = 0.3)
-        plt.colorbar(label = 'Solution u')
-        plt.xlabel('x')
-        plt.ylabel('y')
-        plt.title('FEM Solution (Linear Lagrange)')
         plt.show()
 
     def visualize_3d(self, cmap = 'viridis'):
-
         """
         Plot FEM solution for 2D triangular mesh as a 3D surface.
 
@@ -97,7 +164,6 @@ class SolutionVisualizer:
         cmap : str, optional
             Colormap for surface plot (default 'viridis').
         """
-
         # Use mesh vertices and elements
         vertices = self.mesh.vertices
         elements = self.mesh.elements
@@ -110,21 +176,20 @@ class SolutionVisualizer:
         triang = mtri.Triangulation(x, y, elements)
 
         # Create 3D figure
-        fig = plt.figure(figsize=(8,6))
+        fig = plt.figure(figsize=(8,6), dpi = 150)
         ax = fig.add_subplot(111, projection='3d')
 
         # Plot the surface
         surf = ax.plot_trisurf(triang, z, cmap=cmap, edgecolor='k', linewidth=0.2, antialiased=True)
         
         fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='Solution u')
-        
+    
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_zlabel('u')
         ax.set_title('FEM Solution 3D Surface')
 
         plt.show()
-
 
     def _plot_error_1D_static(self, exact, figsize: tuple = (7, 4), dpi: int = 100, 
                               xlabel: str = 'x', ylabel: str = 'error', title: str = '1D Steady-State Error', **kwargs):

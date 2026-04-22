@@ -3,10 +3,10 @@ from typing import Any
 import numpy as np
 from scipy.sparse import sparray
 import scipy as sc
-from utils.logger import setup_logger
+from utils.logger import get_logger
+logger = get_logger(__name__)
 from scipy.sparse.linalg import cg, LinearOperator
 
-logger = setup_logger(__name__, level = 'info')
 
 #----------------- Linear Solvers for Finite Element Method (FEM) -------------------------
 # The `LinearSolver` class is an abstract base class that defines the interface for linear solvers

@@ -242,7 +242,8 @@ class FEMSpace:
         Parameters
         ----------
         f : Callable
-            The function to interpolate.
+            The function to interpolate. Scalar function f : R^d → R with input given as a single 
+            vector x ∈ R^d. Coordinate-wise arguments (x, y, z) are not supported.
         boundary : "DirichletBC", optional
             If provided, the interpolation will be performed only on the 
             free (non-Dirichlet) nodes. If None, interpolation is performed 
@@ -273,8 +274,8 @@ class FEMSpace:
         Parameters
         ----------
         f : Callable
-            The function to project. Can be any Python callable that accepts a point (x) in 1D 
-            or (x, y) in 2D.
+            Scalar function f : R^d → R with input given as a single vector x ∈ R^d.
+            Coordinate-wise arguments (x, y, z) are not supported.
         boundary : DirichletBC, optional
             If provided, the projection will be performed only on the free (non-Dirichlet) nodes. 
             If None, projection is performed on all nodes.

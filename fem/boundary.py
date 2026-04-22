@@ -3,11 +3,10 @@ from typing import Callable, Optional, TYPE_CHECKING
 from abc import ABC, abstractmethod
 import numpy as np
 from scipy.sparse import sparray, diags_array
-from utils.logger import setup_logger
+from utils.logger import get_logger
+logger = get_logger(__name__)
 if TYPE_CHECKING:
     from fem.femspace import FEMSpace
-
-logger = setup_logger(__name__, level='info')
 
 # -------------- Boundary Conditions for Finite Element Method (FEM) ------------------
 # The `BoundaryCondition` class is an abstract base class that defines the interface for

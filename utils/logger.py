@@ -1,105 +1,108 @@
 import logging
+import os
 import sys
-from typing import Optional, Union
+import colorlog
 
-def setup_logger(name: Optional[str] = None, level: Union[str, int] = 'info') -> logging.Logger:
+_LEVEL_MAP = {
+    'debug': logging.DEBUG,
+    'info': logging.INFO,
+    'warning': logging.WARNING,
+    'error': logging.ERROR,
+    'critical': logging.CRITICAL
+}
+
+def _parse_level(level: str | int) -> int:
     """
-    Set up a reusable logger with standardized formatting.
+    Convert a logging level from string or integer to the corresponding logging constant.
 
     Parameters
     ----------
-    name : str, optional
-        Name of the logger, typically `__name__`. Default is None.
+    level : str or int
+        Logging level as a string ('debug', 'info', ...) or numeric constant.
+
+    Returns
+    -------
+    int
+        Corresponding logging level constant.
+
+    Raises
+    ------
+    ValueError
+        If the string level is not recognized.
+    """
+    if isinstance(level, str):
+        level = level.lower()
+        if level not in _LEVEL_MAP:
+            raise ValueError(f"Unknown logging level: {level}")
+        return _LEVEL_MAP[level]
+    return level
+
+def configure_logging(level: str | int = "info", *, stream=sys.stdout) -> None:
+    """
+    Configure global colored logging (call ONCE in main entry point).
+
+    Parameters
+    ----------
     level : str or int, optional
-        Logging level as a string ('debug', 'info', 'warning', 'error', 'critical')
-        or numeric logging level (e.g., logging.INFO). Default is 'info'.
+        Logging level as a string ('debug', 'info', 'warning', 'error', 'critical') or numeric constant (e.g., logging.DEBUG). Default is 'info'.
+    stream : file-like object, optional
+        Stream to which logs will be written. Default is sys.stdout.
+
+    Features
+    --------
+    - Colored console output
+    - Environment override via LOG_LEVEL
+    - Clean root logger configuration
+    - Safe handler replacement
+    """
+    # Environment override
+    env_level = os.getenv("LOG_LEVEL")
+    if env_level:
+        level = env_level
+    level = _parse_level(level)
+    root = logging.getLogger()
+    root.setLevel(level)
+    # Prevent duplicate handlers safely
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+    handler = colorlog.StreamHandler(stream)
+    # Let root logger control filtering → handler stays flexible
+    handler.setLevel(logging.DEBUG)
+    formatter = colorlog.ColoredFormatter(
+        fmt="%(asctime)s | %(log_color)s%(levelname)s%(reset)s | %(name)s | %(message)s",
+        datefmt="%H:%M:%S",
+        log_colors={
+            "DEBUG": "cyan",
+            "INFO": "green",
+            "WARNING": "yellow",
+            "ERROR": "red",
+            "CRITICAL": "bold_red",
+        },
+    )
+    handler.setFormatter(formatter)
+    root.addHandler(handler)
+
+def get_logger(name: str) -> logging.Logger:
+    """
+    Retrieve a logger instance.
+
+    This function does not configure logging. It assumes that
+    `configure_logging` has already been called.
+
+    Parameters
+    ----------
+    name : str
+        Name of the logger, typically `__name__`.
 
     Returns
     -------
     logging.Logger
-        Configured logger instance.
-    
-    Notes
-    -----
-    - If the logger already has handlers, no new handlers are added to prevent duplicate messages.
-    - Standard log format includes timestamp, logger name, level, and message.
+        Logger instance associated with the given name.
+
+    Examples
+    --------
+    >>> logger = get_logger(__name__)
+    >>> logger.info("Running solver")
+    >>> logger.debug("Internal values")
     """
-    # Convert string levels to logging constants
-    if isinstance(level, str):
-        level = level.lower()
-        level_map = {
-            'debug': logging.DEBUG,
-            'info': logging.INFO,
-            'warning': logging.WARNING,
-            'error': logging.ERROR,
-            'critical': logging.CRITICAL
-        }
-        if level not in level_map:
-            raise ValueError(f"Unknown logging level: {level}")
-        level = level_map[level]
-
-    # Create or get logger
-    logger = logging.getLogger(name)
-
-    # Only add handler if none exist to avoid duplicates
-    if not logger.hasHandlers():
-        logger.setLevel(level)
-        handler = logging.StreamHandler()
-        handler.setLevel(level)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-
-    return logger
-
-def log_progress(logger: logging.Logger, step: int, nsteps: int, t: float) -> None:
-    """
-    Log a colorful progress bar for time-stepping loops.
-
-    Parameters
-    ----------
-    logger : logging.Logger
-        Logger instance returned by `setup_logger`
-    step : int
-        Current step index (0-based)
-    nsteps : int
-        Total number of steps
-    t : float
-        Current time
-    """
-
-    use_color = sys.stdout.isatty()
-
-    step = min(step, nsteps - 1)
-
-    width = 28
-    progress = (step + 1) / nsteps
-    filled = int(width * progress)
-
-    if use_color:
-        bar = (
-            "\033[92m" + "█" * filled +
-            "\033[90m" + "─" * (width - filled) +
-            "\033[0m"
-        )
-        msg = (
-            "%s  "
-            "\033[96mStep %4d/%d\033[0m | "
-            "\033[93mt = %.3e\033[0m | "
-            "\033[95m%5.1f%%\033[0m"
-        )
-    else:
-        bar = "[" + "=" * filled + "-" * (width - filled) + "]"
-        msg = "%s  Step %4d/%d | t = %.3e | %5.1f%%"
-
-    logger.info(
-        msg,
-        bar,
-        step + 1,
-        nsteps,
-        t,
-        100 * progress
-    )
+    return logging.getLogger(name)

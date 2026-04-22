@@ -1,9 +1,10 @@
-from collections import defaultdict
 import itertools as it
+from collections import defaultdict
 import numpy as np
 import pymetis
 import triangle as tr
-from utils.logger import setup_logger
+from utils.logger import get_logger
+logger = get_logger(__name__)
 
 # ---------------- Mesh Class for Finite Element Method (FEM) -------------------
 # This class defines a mesh for 1D or 2D domains, including vertices, elements, 
@@ -23,8 +24,6 @@ from utils.logger import setup_logger
 # `elements` -> connectivity array defining elements (triangles in 2D, line segments in 1D)
 # `edges` -> connectivity array defining edges (line segments in 2D, points in 1D)
 # ---------------------------------------------------------------------------------
-
-logger = setup_logger(__name__, level = 'info')
 
 class Mesh:
     def __init__(self, vertices, elements = None, segments = None, segment_markers = None, holes = None, domainID: int = 0, dim: int = 2, options: str = 'qa0.1'):
@@ -843,25 +842,6 @@ class Mesh:
         element = np.asarray(element)
         return bool(np.isin(element, self.boundary_nodes()).any())
 
-    def diam(self) -> float:
-        """
-        Compute the diameter of the mesh, defined as the maximum distance between any two vertices.
-
-        Returns
-        -------
-        float
-            The diameter of the mesh.
-        """
-        if self.dim == 1:
-            a, b = self.boundary_nodes_coord()
-            return np.abs(b-a)
-        elif self.dim == 2:
-            from scipy.spatial import distance_matrix
-            dist_matrix = distance_matrix(self.vertices, self.vertices)
-            return np.max(dist_matrix)
-        else:
-            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
-
     def _local_boundary_vertices(self, elements: np.ndarray) -> np.ndarray:
         if self.dim == 1:
             arr = elements.ravel()
@@ -938,8 +918,8 @@ class Mesh:
 
         Returns
         -------
-        submeshes : list of Mesh
-            List of `Mesh` objects corresponding to each subdomain.
+        submeshes : dict[int, Mesh]
+            Dictionary of `Mesh` objects corresponding to each subdomain, keyed by subdomain ID.
         ltog : dict[int, np.ndarray]
             Dictionary mapping each subdomain ID to the corresponding global nodes in that subdomain.
             To access the global index of a local node `i` in subdomain `s`, use `ltog[s][i]`.
@@ -1055,8 +1035,7 @@ class Mesh:
         subdomain_elements_extended = self._extend_subdomains(subdomain_elements, vertex_to_elements, self.elements, overlap, copy = True if version == 2 else False)
 
         # Construct submeshes and mapping between local and global node indices for each subdomain
-        submeshes = []
-        ltog, gtol = {}, {}
+        submeshes, ltog, gtol = {}, {}, {}
         for j, elements in enumerate(subdomain_elements_extended, start = 1):
             global_indices = np.unique(elements) # subdomain nodes in global indexing, sorted in ascending order
             ltog[j] = global_indices # ltog[j][i] gives the global index of the i-th local node in subdomain j 
@@ -1069,12 +1048,12 @@ class Mesh:
             submesh.degree = self.degree
             submesh.segments = None
             submesh.segment_markers = None
-            submeshes.append(submesh)
+            submeshes[j] = submesh
 
         # Compute boundary nodes for all subdomains and the global mesh (`nodes` used here means all nodes including edge nodes for higher degree elements, not just corner vertices)
         boundary_nodes = dict()
         boundary_nodes[0] = self.boundary_nodes() # whole boundary nodes in global indexing
-        for k, submesh in enumerate(submeshes, start = 1):
+        for k, submesh in submeshes.items():
             boundary_nodes[k] = ltog[k][submesh.boundary_nodes()] # boundary nodes of subdomain k in global indexing
 
         # Construct the mapping for each subdomain, which maps each local node index i in subdomain s to a list of tuples (t, lt) where t is either 0 or another subdomain index, and lt is the corresponding local node index in subdomain t. 
@@ -1254,6 +1233,74 @@ class Mesh:
             return areas
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+    
+    def diam(self) -> float:
+        """
+        Compute the diameter of the mesh, defined as the maximum distance between any two vertices.
+
+        Returns
+        -------
+        float
+            The diameter of the mesh.
+        """
+        if self.dim == 1:
+            a, b = self.boundary_nodes_coord()
+            return np.abs(b-a)
+        elif self.dim == 2:
+            from scipy.spatial import distance_matrix
+            dist_matrix = distance_matrix(self.vertices, self.vertices)
+            return np.max(dist_matrix)
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+
+    def element_size(self, element_index: int) -> float:
+        """
+        Compute the diameter of a specific element in the mesh.
+
+        - For 1D meshes, this is the length of an interval.
+        - For 2D meshes, this is the maximum distance between any two vertices of the triangle.
+
+        Parameters
+        ----------
+        element_index : int
+            The index of the element for which to compute the diameter.
+        
+        Returns
+        -------
+        float
+            The diameter of the specified element.
+        """
+        if self.dim == 1:
+            interval = self.elements[element_index]
+            a, b = self.vertices[interval[0]], self.vertices[interval[-1]]
+            assert isinstance(a, (int, float)) and isinstance(b, (int, float)), "Vertices must be 1D coordinates for 1D meshes." # I do not like this assertion, but it is just to be safe and make sure that the vertices are 1D coordinates!
+            return abs(b - a)
+        elif self.dim == 2:
+            triangle = self.elements[element_index]
+            p0, p1, p2 = self.vertices[triangle[:3]]
+            return float(max(np.linalg.norm(p0 - p1), np.linalg.norm(p1 - p2), np.linalg.norm(p2 - p0)))
+        else:
+            raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
+
+    def size(self) -> float:
+        """
+        Compute the size of the mesh, defined as the maximum diameter of its elements.
+
+        - For 1D meshes, this is the maximum interval length.
+        - For 2D meshes, this is the maximum triangle diameter.
+
+        Returns
+        -------
+        float
+            The size of the mesh.
+        """
+        h = 0.0
+        nelem = self.nelements()
+        for element_index in range(nelem):
+            h_K = self.element_size(element_index)
+            if h_K > h:
+                h = h_K
+        return h
         
     # Human-readable summary
     def __str__(self):
@@ -1271,10 +1318,34 @@ class Mesh:
                 f"dim={self.dim}, options='{self.options}')")
 
     # Information about the mesh (more detailed)
-    def info(self):
+    def info(self) -> str:
         """
-        Return a human-readable summary of the mesh.
-        Works for both 1D (lines) and 2D (triangles) meshes.
+        Return a formatted string containing a summary of the mesh.
+
+        This includes basic geometric and topological information about the mesh,
+        suitable for both 1D (line) and 2D (triangular) discretizations.
+
+        The output is designed to be used with Rich for console display.
+
+        Example
+        -------
+        >>> from rich.console import Console
+        >>> from rich.panel import Panel
+        >>> console = Console()
+        >>> console.print(Panel(mesh.info(), title="Mesh Summary", border_style="cyan"))
+
+        Returns
+        -------
+        str
+            A formatted string describing:
+            - Spatial dimension of the mesh
+            - Domain identifier
+            - Number of nodes
+            - Number of elements
+            - Number of boundary nodes
+            - Number of boundary elements
+            - Total measure of the domain (length in 1D, area in 2D)
+            - Mesh size (h), defined as the maximum element diameter
         """
         nnodes = self.nnodes()
         nelements = self.nelements()
@@ -1282,13 +1353,13 @@ class Mesh:
         total_measure  = np.sum(self.measures()) # Total measure: length for 1D, area for 2D
         element_type = "lines" if self.dim == 1 else "triangles"
         num_boundary_elements = len(self.boundary_elements()) if self.dim == 2 else 2  # In 1D, there are always 2 boundary elements (the two endpoints)
-        information = (
-        f"Mesh Information:\n"
-        f"  Dimension: {self.dim}D\n"
-        f"  Domain ID: {self.domainID}\n"
-        f"  Number of nodes: {nnodes}\n"
-        f"  Number of elements ({element_type}): {nelements}\n"
-        f"  Number of boundary nodes: {num_boundary_nodes}\n"
-        f"  Number of boundary elements: {num_boundary_elements}\n"
-        f"  Total measure ({'length' if self.dim == 1 else 'area'}): {total_measure}")
-        return information
+        return (
+            f"[bold]Dimension:[/bold] {self.dim}D\n"
+            f"[bold]Domain:[/bold] {self.domainID}\n"
+            f"[bold]Nodes:[/bold] {nnodes}\n"
+            f"[bold]Elements ({element_type}):[/bold] {nelements}\n"
+            f"[bold]Boundary nodes:[/bold] {num_boundary_nodes}\n"
+            f"[bold]Boundary elements:[/bold] {num_boundary_elements}\n"
+            f"[bold]Measure ({'length' if self.dim == 1 else 'area'}):[/bold] {total_measure}\n"
+            f"[bold]Mesh size (h):[/bold] {self.size()}"
+        )

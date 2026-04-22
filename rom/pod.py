@@ -1,12 +1,10 @@
 import numpy as np
-import utils.logger as log 
-import scipy.sparse as sp
-from fom.heat import HeatProblem
+from utils.logger import get_logger
+from fom.heat_fom import HeatProblem
 from fem.linearsolver import DirectSolver, LinearSolver
 from typing import Optional
 from scipy.linalg import cholesky, solve_triangular
-
-logger = log.setup_logger(__name__, level = 'info')
+logger = get_logger(__name__)
 
 class POD:
     def __init__(self, heat_problem: HeatProblem, ntime: int, lift: str, theta: float, r: int, weight: Optional[np.ndarray] = None, energy_tol: float = 0.999, solver: LinearSolver = DirectSolver()):
@@ -48,7 +46,7 @@ class POD:
         return self.hp.solve(time_grid=np.linspace(self.hp.t0, self.hp.T, self.ntime), lift=self.lift, theta=self.theta, solver=self.solver, homogeneous=True) # shape (n_interior, n_time)
 
     def compute_modes(self):
-        logger.info("Computing snapshots for POD...")
+        logger.debug("Computing snapshots for POD...")
         snapshot_matrix = self.compute_snapshots()
 
         if self.weight is None:

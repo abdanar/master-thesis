@@ -5,11 +5,10 @@ from scipy.sparse import coo_array
 from fem.localint import LocalIntegrator
 from fem.phyelement import PhysicalElement
 from fem.refelement import ReferenceElement
-from utils.logger import setup_logger
+from utils.logger import get_logger
+logger = get_logger(__name__)
 if TYPE_CHECKING:
     from fem.femspace import FEMSpace
-
-logger = setup_logger(__name__, level = 'info')
 
 #----------------- Assembler for Finite Element Method (FEM) -------------------------
 # The `Assembler` class is responsible for assembling the global stiffness matrix, 

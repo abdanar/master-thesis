@@ -2,9 +2,8 @@ import numpy as np
 from typing import Callable
 from fem.phyelement import PhysicalElement
 from fem.quadrature import triangle_quadrature, interval_quadrature
-from utils.logger import setup_logger
-
-logger = setup_logger(__name__, level = 'info')
+from utils.logger import get_logger
+logger = get_logger(__name__)
 
 # ---------------- Local Integrator for Finite Element Method (FEM) ----------------------
 # The `LocalIntegrator` class computes element-local matrices and load vectors for 
@@ -144,7 +143,7 @@ class LocalIntegrator:
         - The resulting matrix is symmetric if the diffusion coefficient is symmetric.
         - Supports 1D interval elements and 2D triangular elements.
         """
-        logger.debug(f"Computing local stiffness matrix")
+        logger.debug(f"Computing local stiffness matrix...")
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -226,7 +225,7 @@ class LocalIntegrator:
         - conv_vals @ grad_phi_vals[j] computes the dot product between the convection
           vector and the gradient of the j-th basis function.
         """
-        logger.debug(f"Computing local convection matrix")
+        logger.debug(f"Computing local convection matrix...")
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -311,7 +310,7 @@ class LocalIntegrator:
         - The resulting matrix is symmetric if c is scalar-valued and positive.
         - Supports 1D interval elements and 2D triangular elements.
         """
-        logger.debug(f"Computing local reaction matrix")
+        logger.debug(f"Computing local reaction matrix...")
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()
@@ -379,7 +378,7 @@ class LocalIntegrator:
         - Quadrature points and weights are precomputed in the constructor.
         - The resulting vector can be added to the global load vector in assembly.
         """
-        logger.debug(f"Computing local load vector")
+        logger.debug(f"Computing local load vector...")
 
         # determinant of the Jacobian
         detJ = self.element.det_jacobian()

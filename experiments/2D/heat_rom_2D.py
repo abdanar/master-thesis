@@ -36,11 +36,13 @@ def h2D(x, y):
 fom2D = HeatProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D)
 
 # POD reduction of the 2D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson) to r = 10 modes
-pod2D = POD(heat_problem = fom2D, ntime = 31, lift = 'nodal', theta = 0.5, r = 10)
-print("Projection matrix V shape:", pod2D.V.shape) # Should be (nintnodes, r) where nintnodes is the number of interior nodes and r is the number of modes retained
+tparams = np.linspace(t0, T, 31) # Time parameters for snapshot generation (31 snapshots including t0 and T)
+pod2D = POD(heat_problem = fom2D, time_grid = tparams, lift = 'nodal', theta = 0.5, r = 10)
+V, _ = pod2D.compute_modes()
+print("Projection matrix V shape:", V.shape) # Should be (nintnodes, r) where nintnodes is the number of interior nodes and r is the number of modes retained
 
 # Reduce the 2D Heat problem using a projection matrix
-rom2D = ReducedHeatProblem(heat_problem = fom2D, V = pod2D.V)
+rom2D = ReducedHeatProblem(heat_problem = fom2D, V = V)
 
 # Solve the 2D Reduced Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson) and reconstruct the full solution
 rom_solution2D = rom2D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5, reconstruct = True)

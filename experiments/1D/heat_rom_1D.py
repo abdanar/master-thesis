@@ -34,11 +34,13 @@ def h1D(x):
 fom1D = HeatProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D)
 
 # POD reduction of the 1D Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson) to r = 10 modes
-pod1D = POD(heat_problem = fom1D, ntime = 31, lift = 'nodal', theta = 0.5, r = 10)
-print("Projection matrix V shape:", pod1D.V.shape) # Should be (nintnodes, r) where nintnodes is the number of interior nodes and r is the number of modes retained
+tparams = np.linspace(t0, T, 31) # Time parameters for snapshot generation (31 snapshots including t0 and T)
+pod1D = POD(heat_problem = fom1D, time_grid = tparams, lift = 'nodal', theta = 0.5, r = 10)
+V, _ = pod1D.compute_modes()
+print("Projection matrix V shape:", V.shape) # Should be (nintnodes, r) where nintnodes is the number of interior nodes and r is the number of modes retained
 
 # Reduce the 1D Heat problem using a projection matrix
-rom1D = ReducedHeatProblem(heat_problem = fom1D, V = pod1D.V)
+rom1D = ReducedHeatProblem(heat_problem = fom1D, V = V)
 
 # Solve the 1D Reduced Heat problem using nodal lifting and theta method with theta = 0.5 (Crank-Nicolson) and reconstruct the full solution
 rom_solution1D = rom1D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5, reconstruct = True)

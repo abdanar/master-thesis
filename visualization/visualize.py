@@ -550,7 +550,7 @@ class SolutionVisualizer:
     def plot(self, use_femspace: bool = False, eval_points: Optional[np.ndarray] = None, 
                 plot_type: Literal["3d", "contour"] = "3d", contour_levels: int = 20, 
                 data: Optional[dict] = None, styles: Optional[dict] = None, figsize: tuple = (7, 6), dpi: int = 100, 
-                slabel: Optional[str] = None, xlabel: str = 'x', ylabel: str = 'y', zlabel: str = 'z', title: str = 'Solution', 
+                slabel: Optional[str] = None, xlabel: str = r'$x$', ylabel: str = 'y', zlabel: str = 'z', title: str = 'Solution', 
                 xmin: Optional[float] = None, xmax: Optional[float] = None, ymin: Optional[float] = None, ymax: Optional[float] = None, 
                 zmin: Optional[float] = None, zmax: Optional[float] = None, logscale: bool = False, grid: bool = True, save_path: Optional[str] = None, **kwargs):
         """

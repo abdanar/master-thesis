@@ -73,9 +73,9 @@ global_history = history1D.values[MetricType.ABSOLUTE_ERROR]["global"] # shape (
 subdomain_history = history1D.values[MetricType.CONVERGENCE_RATE]["subdomains"] # shape dictionary of shape {domainID: shape (niter, ntime)}
 styles = {1: {'label': 'Subdomain 1', 'color': 'orange', 'linestyle': '-', 'linewidth': 0.6},
           2: {'label': 'Subdomain 2', 'color': 'blue', 'linestyle': '-', 'linewidth': 0.6}}
-visualizer1D.plot_iteration(data = global_history, dpi = 150, ylabel = rf"$\| u_{{exact}} - u_{{OSWR}} \|_{{L^2(0,{T};L^2({vert1D[0]}, {vert1D[-1]}))}}$", save_path="figures/1D/oswr/fig1D_global_fom(exact).png",
+visualizer1D.plot_iteration(data = global_history, dpi = 300, ylabel = rf"$\| u_{{exact}} - u_{{OSWR}} \|_{{L^2(0,{T};L^2({vert1D[0]}, {vert1D[-1]}))}}$", save_path="figures/1D/oswr/fig1D_global_fom(exact).png",
                             color = 'black', linestyle = '-', linewidth = 0.7)
 for i in range(len(time_indices)):
-    visualizer1D.plot_iteration(data = {domainID: subdomain_history[domainID][:, i] for domainID in subdomain_history}, dpi = 150, title = r"Convergence Rate", xlabel = r"Iteration ($k$)", 
+    visualizer1D.plot_iteration(data = {domainID: subdomain_history[domainID][:, i] for domainID in subdomain_history}, dpi = 300, title = r"Convergence Rate", xlabel = r"Iteration ($k$)", 
                                 ylabel = rf"$\dfrac{{\| u_{{exact}}(t_{{{time_indices[i]}}}) - u^{{k}}_{{OSWR}}(t_{{{time_indices[i]}}}) \|_{{L^2}}}}{{\| u_{{exact}}(t_{{{time_indices[i]}}}) - u^{{k-1}}_{{OSWR}}(t_{{{time_indices[i]}}}) \|_{{L^2}}}}$",
                                 save_path=f"figures/1D/oswr/fig1D_subdomains_time{time_indices[i]}_fom(exact).png", styles = styles)

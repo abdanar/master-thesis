@@ -1,9 +1,26 @@
-from typing import Callable, Optional
+from typing import Optional, Literal
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 import numpy as np
 from matplotlib.widgets import Slider
 from fem.mesh import Mesh
+from fem.femspace import FEMSpace
+from matplotlib.colors import Normalize
+
+from utils.logger import get_logger
+logger = get_logger(__name__)
+
+# Configure matplotlib to use LaTeX for rendering text with support for mathematical symbols and equations, 
+# and set the font to a serif style for a more traditional look. This enhances the visual quality of the plots, 
+# especially when displaying mathematical expressions in axis labels, titles, and annotations.
+plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "text.latex.preamble": r"""
+        \usepackage{amsmath}
+        \usepackage{amsfonts}
+        \usepackage{amssymb}
+    """})
 
 class MeshVisualizer:
     def __init__(self, mesh: Mesh):
@@ -15,28 +32,25 @@ class MeshVisualizer:
 
     # Build a color array where boundary triangles get color `1` and interior triangles get color `0`.
     def carray_boundary(self) -> np.ndarray:
-        colors = np.zeros(self.mesh.elements.shape[0], dtype=int)
-        bdtriangles = self.mesh.boundary_elements()
-        for i, triangle in enumerate(self.mesh.elements):
-            if tuple(triangle) in bdtriangles:
-                colors[i] = 1
+        colors = np.zeros(self.mesh.elements.shape[0], dtype = int)
+        elements = self.mesh.elements
+        bdelements = self.mesh.boundary_elements()
+        element_view = elements.view([('', elements.dtype)] * elements.shape[1]).ravel()
+        bdelement_view = bdelements.view([('', bdelements.dtype)] * bdelements.shape[1]).ravel()
+        indices = np.nonzero(np.isin(element_view, bdelement_view))[0]
+        colors[indices] = 1
         return colors
-    
-    # Build a color array representing the non-overlapping subdomain decomposition of the mesh.
-    def carray_decomposition(self, n: int, edge_weights = None) -> np.ndarray:
-        _, _, _, _, membership = self.mesh.decompose(n = n, edge_weights = edge_weights)
-        return np.array(membership)
-    
+        
     # Annotate the triangles with their numbers.
     def _triangle_numbers(self, mesh: Mesh, ax, color = 'black', fontsize = 6):        
         for i, element in enumerate(mesh.elements):
             centroid = mesh.vertices[element].mean(axis = 0)
-            ax.text(centroid[0], centroid[1], str(i + 1), color = color, fontsize = fontsize, ha = 'center', va = 'center', clip_on = True)
+            ax.text(centroid[0], centroid[1], str(i), color = color, fontsize = fontsize, ha = 'center', va = 'center', clip_on = True)
     
     # Annotate the vertices with their numbers.
     def _vertex_numbers(self, mesh: Mesh, ax, color = 'black', fontsize = 7):
         for i, (x, y) in enumerate(mesh.vertices):
-            ax.text(x, y, str(i + 1), color = color, fontsize = fontsize, ha = 'right', va = 'bottom', clip_on = True)
+            ax.text(x, y, str(i), color = color, fontsize = fontsize, ha = 'right', va = 'bottom', clip_on = True)
 
     # Plot the mesh vertices as dots.
     def _vertex_markers(self, mesh: Mesh, ax, color = 'black', size = 15):
@@ -44,7 +58,8 @@ class MeshVisualizer:
 
     def plot_mesh(self, carray: Optional[np.ndarray] = None, figsize: tuple = (6, 6), dpi: int = 150, 
                 show_vertex_markers: bool = True, show_node_numbers: bool = True, show_element_numbers: bool = True,
-                axis_off: bool = True, save_path: Optional[str] = None):
+                show_color_bar: bool = False, axis_off: bool = True, cbar_fraction: float = 0.05, cbar_pad: float = 0.05,
+                save_path: Optional[str] = None, **kwargs):
         """
         Visualize the mesh with optional coloring and annotations.
 
@@ -62,26 +77,41 @@ class MeshVisualizer:
             If True, annotate the vertices with their numbers (default: True).
         show_element_numbers : bool, optional
             If True, annotate the elements with their numbers (default: True).
+        show_color_bar : bool, optional
+            If True, display a color bar when coloring is applied (default: False).
         axis_off : bool, optional
             If True, turn off the axis (default: True).
+        cbar_fraction : float, optional
+            Fraction of the original axes to use for the colorbar (default: 0.05).
+        cbar_pad : float, optional
+            Padding between the axes and colorbar (default: 0.05).
         save_path : str, optional
             If provided, save the figure to the specified path (default: None).
+        **kwargs : dict, optional
+            Additional keyword arguments to pass to the plotting functions.
         """
-        plt.figure(figsize = figsize, dpi = dpi)
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
         if carray is None:
-            plt.triplot(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], self.mesh.elements, color = 'k', linewidth = 0.5)
+            ax.triplot(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], self.mesh.elements, color='k', linewidth=0.5, **kwargs)
+            tpc = None
         else:
-            plt.tripcolor(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], self.mesh.elements, carray, edgecolors = 'k')
-        self._vertex_numbers(self.mesh, plt.gca()) if show_node_numbers else None
-        self._triangle_numbers(self.mesh, plt.gca()) if show_element_numbers else None
-        self._vertex_markers(self.mesh, plt.gca()) if show_vertex_markers else None
-        plt.axis('off') if axis_off else None
-        plt.gca().set_aspect('equal')
-        plt.tight_layout()
+            tpc = ax.tripcolor(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], self.mesh.elements, facecolors = carray, edgecolors = 'k', **kwargs)
+        if show_node_numbers:
+            self._vertex_numbers(self.mesh, ax)
+        if show_element_numbers:
+            self._triangle_numbers(self.mesh, ax)
+        if show_vertex_markers:
+            self._vertex_markers(self.mesh, ax)
+        if tpc is not None and show_color_bar:
+            cbar = fig.colorbar(tpc, ax=ax, fraction = cbar_fraction, pad = cbar_pad)
+        if axis_off:
+            ax.axis('off')
+        ax.set_aspect('equal')
+        fig.tight_layout()
         if save_path is not None:
             import os
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            plt.savefig(save_path, bbox_inches='tight', dpi=dpi)
+            fig.savefig(save_path, bbox_inches='tight', dpi=dpi)
         plt.show()
 
     def plot_subdomains(self, subdomains: dict[int, Mesh], membership: Optional[np.ndarray] = None, 
@@ -160,299 +190,452 @@ class MeshVisualizer:
         plt.show()
 
 class SolutionVisualizer:
-    def __init__(self, meshobj: Mesh, u: np.ndarray, dt: Optional[float] = None):
+    def __init__(self, mesh: Mesh, u: np.ndarray, dt: Optional[float] = None, femspace: Optional[FEMSpace] = None):
         """
         Parameters
         ----------
-        meshobj : Mesh
+        mesh : Mesh
             The mesh object the solution is defined on.
         u : np.ndarray
-            FEM solution array. For time-dependent problems, shape should be (nspace, ntime). 
-            For steady-state problems, shape can be (nspace,) or (nspace, 1).
+            FEM solution array.
+            - For steady-state problems, should be of shape (nspace,) where nspace is the number of mesh vertices.
+            - For time-dependent problems, should be of shape (nspace, ntime) where ntime is the number of time steps.
         dt : float, optional
             Time step size
+        femspace : FEMSpace, optional
+            The finite element space associated with the solution (default: None).
         """
-        self.mesh = meshobj
+        self.mesh = mesh
         self.u = u
         self.dt = dt
+        self.femspace = femspace
         self.ntime = u.shape[1] if dt is not None and u.ndim == 2 else 1
+        assert u.shape[0] == mesh.vertices.shape[0], "The number of rows in u must match the number of mesh vertices"
+        assert (dt is not None and u.ndim == 2) or (dt is None and u.ndim == 1), "For time-dependent problems, u must be 2D with shape (nspace, ntime). For steady-state problems, u must be 1D with shape (nspace,)"
 
-    def visualize(self,
-                xlabel: str = "Iteration number",
-                ylabel: str = r"$\| u_h - u \|_{L^2}$",
-                title: str = r"Iteration vs $L^{2}$ Error",
-                grid: bool = True,
-                logscale: bool = False,
-                cmap: str = 'viridis',
-                levels: int = 50,
-                figsize=(6, 5),
-                dpi: int = 150,
-                save_path: Optional[str] = None,
-                **kwargs):
+    def _eval_at_points(self, eval_points: np.ndarray, t_index: Optional[int] = None, coeffs: Optional[np.ndarray] = None) -> np.ndarray:
         """
-        Visualize the FEM solution for 1D or 2D meshes and optionally save the figure.
-
-        For 1D meshes, a line plot of the solution is produced.
-        For 2D meshes, a filled contour plot over a triangulation is generated.
+        This function evaluates the FEM solution `self.u` at given points `eval_points` using the provided `self.femspace`.
+        It uses the shape functions of the finite element space to compute the solution values at the specified points.
 
         Parameters
         ----------
-        xlabel : str, optional
-            Label for the x-axis (default: "Iteration number").
-        ylabel : str, optional
-            Label for the y-axis (default: r"$\\| u_h - u \\|_{L^2}$").
-        title : str, optional
-            Title of the plot (default: r"Iteration vs $L^{2}$ Error").
-        grid : bool, optional
-            If True, display a background grid (default: True).
-        logscale : bool, optional
-            If True, apply logarithmic scaling:
-            - 1D: logarithmic y-axis
-            - 2D: logarithmic color scaling (uses |u| + ε to avoid log(0)) (default: False).
-        cmap : str, optional
-            Colormap used for 2D contour plots (default: 'viridis').
-        levels : int, optional
-            Number of contour levels for 2D plots (default: 50).
-        figsize : tuple, optional
-            Figure size in inches (width, height) (default: (6, 5)).
-        dpi : int, optional
-            Resolution of the figure in dots per inch (default: 150).
-        save_path : str, optional
-            If provided, saves the figure to the given path (e.g., "plot.png" or "plot.pdf").
-            If None, the figure is not saved (default: None).
-        **kwargs : dict
-            Additional keyword arguments passed to the plotting functions:
-            - 1D: matplotlib.pyplot.plot (e.g., color='b', linestyle='-')
-            - 2D: matplotlib.pyplot.tricontourf (e.g., edgecolors='k')
-
-        Raises
-        ------
-        ValueError
-            If the mesh dimension is not supported (only 1D and 2D are supported).
-
-        Notes
-        -----
-        - For FEM consistency, solution values are flattened using `.ravel()`.
-        - Log scaling in 2D uses `|u| + 1e-14` to avoid numerical issues.
-        - Saving with `.pdf` is recommended for publication-quality (vector graphics).
+        eval_points : np.ndarray
+            Points at which to evaluate the solution.
+            - If the mesh is 1D, should be of shape (n_eval,).
+            - If the mesh is 2D, should be of shape (n_eval, 2) where each row is (x, y).
+        t_index : int, optional
+            Time step index for time-dependent problems (default: None). If None, it evaluates the steady-state solution.
+        coeffs : np.ndarray, optional
+            Coefficients to use for evaluation instead of `self.u`. Should have the same shape as `self.u` (default: None).
         """
-        plt.figure(figsize=figsize, dpi=dpi)
-        if self.mesh.dim == 1:
-            x = self.mesh.vertices
-            u = self.u.ravel()
-            plt.plot(x, u, **kwargs)
-            if logscale:
-                plt.yscale('log')
-            plt.xlabel(xlabel)
-            plt.ylabel(ylabel)
-            plt.title(title)
-        elif self.mesh.dim == 2:
-            from matplotlib.colors import LogNorm
-            x = self.mesh.vertices[:, 0]
-            y = self.mesh.vertices[:, 1]
-            u = self.u.ravel()
-            triang = mtri.Triangulation(x, y, self.mesh.elements)
-            if logscale:
-                u_plot = np.abs(u) + 1e-14
-                contour = plt.tricontourf(triang, u_plot, levels=levels, cmap=cmap, norm=LogNorm(vmin=u_plot.min(), vmax=u_plot.max()))
-            else:
-                contour = plt.tricontourf(triang, u, levels=levels, cmap=cmap)
-            plt.triplot(triang, color='k', linewidth=0.3, alpha=0.5)
-            plt.colorbar(contour, label='Solution $u$')
-            plt.gca().set_aspect('equal')
-            plt.xlabel(xlabel)
-            plt.ylabel(ylabel)
-            plt.title(title)
+        assert self.femspace is not None, "FEM space is required to evaluate at given eval_points"
+        values = np.zeros(eval_points.shape[0])
+        if coeffs is not None:
+            assert coeffs.shape[0] == self.u.shape[0], "Coefficient array must have the same number of rows as u"
+            weights = coeffs if t_index is None else coeffs[:, t_index]
         else:
-            raise ValueError("Unsupported mesh dimension for visualization")
+            weights = self.u if t_index is None else self.u[:, t_index]
+        for i, point in enumerate(eval_points):
+            values[i] = self.femspace.evaluate_solution(U = weights, x = point)
+        return values
 
-        # Common settings
+    def _plot_1D_static(self, use_femspace: bool = False, eval_points: Optional[np.ndarray] = None, 
+                        data: Optional[dict] = None, figsize: tuple = (7, 4), dpi: int = 100, 
+                        slabel: Optional[str] = None , xlabel: str = r'$x$', ylabel: str = r'$u(x)$', title: str = 'FEM Solution',
+                        xmin: Optional[float] = None, xmax: Optional[float] = None, ymin: Optional[float] = None, ymax: Optional[float] = None, 
+                        styles: Optional[dict[str, dict]] = None, logscale: bool = False, grid: bool = True, save_path: Optional[str] = None, **kwargs):
+        if use_femspace:
+            assert self.femspace is not None, "FEM space is required to evaluate at given eval_points"
+            assert eval_points is not None, "eval_points must be provided when use_femspace is True"
+            x_values = eval_points
+            y_values = self._eval_at_points(eval_points)
+        else:
+            x_values = self.mesh.vertices
+            y_values = self.u
+        fig = plt.figure(figsize = figsize, dpi = dpi, constrained_layout=True)
+        ax = fig.add_subplot(111)
+        ax.plot(x_values, y_values, label=slabel, **kwargs)
+        if data is not None:
+            for key, values in data.items():
+                if use_femspace:
+                    values = self._eval_at_points(eval_points, coeffs = values) # type: ignore
+                assert len(values) == len(x_values), f"{key} has wrong size"
+                style = styles.get(key, {}) if styles else {}
+                ax.plot(x_values, values, **style)
+        if xmin is not None or xmax is not None:
+            ax.set_xlim(left=xmin, right=xmax)
+        if ymin is not None or ymax is not None:
+            ax.set_ylim(bottom=ymin, top=ymax)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        if logscale:
+            ax.set_yscale("log")
         if grid:
-            plt.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
-        plt.tick_params(direction='in', which='both', top=True, right=True)
-        plt.tight_layout()
-
-        # Save figure
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+        if data is not None:
+            ax.legend()
         if save_path is not None:
+            import os
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path, bbox_inches='tight', dpi=dpi)
+        ax.tick_params(direction='in', which='both', top=True, right=True)
+        plt.show()
+
+    def _plot_1D_time(self, use_femspace: bool = False, eval_points: Optional[np.ndarray] = None, 
+                    data: Optional[dict] = None, figsize: tuple = (7, 4), dpi: int = 100, 
+                    slabel: Optional[str] = None, xlabel: str = r'$x$', ylabel: str = r'$u$', title: str = 'Evolution of Solution', 
+                    xmin: Optional[float] = None, xmax: Optional[float] = None, ymin: Optional[float] = None, ymax: Optional[float] = None, 
+                    styles: Optional[dict] = None, logscale: bool = False, grid: bool = True, **kwargs):
+        if use_femspace:
+            assert self.femspace is not None, "FEM space is required to evaluate at given eval_points"
+            assert eval_points is not None, "eval_points must be provided when use_femspace is True"
+            values = np.zeros((eval_points.shape[0], self.ntime))
+            for t in range(self.ntime): # precompute values at all time steps for efficiency
+                values[:, t] = self._eval_at_points(eval_points, t_index = t)
+            if data is not None:
+                data_values = {}
+                for label, arr in data.items():
+                    assert arr.shape[1] == self.ntime, f"{label} wrong time dimension"
+                    assert arr.shape[0] == self.u.shape[0], f"{label} wrong spatial dimension"
+                    data_values[label] = np.zeros((eval_points.shape[0], self.ntime))
+                    for t in range(self.ntime):
+                        data_values[label][:, t] = self._eval_at_points(eval_points, t_index = t, coeffs = arr) # type: ignore
+            x_values = eval_points
+            y_values = values[:, 0]
+        else:
+            x_values = self.mesh.vertices
+            y_values = self.u[:, 0]
+            
+        # Initial plot
+        fig = plt.figure(figsize = figsize, dpi = dpi, constrained_layout=True)
+        gs = fig.add_gridspec(nrows = 2, ncols = 1, height_ratios = [20, 1], hspace=0.05)
+        ax = fig.add_subplot(gs[0])
+        line_main, = ax.plot(x_values, y_values, label=slabel, **kwargs)
+        extra_lines = {}
+        if data is not None:
+            for key, arr in data.items():
+                arr = arr if not use_femspace else data_values[key] # type: ignore use precomputed values for efficiency
+                style = styles.get(key, {}) if styles else {}
+                line, = ax.plot(x_values, arr[:, 0], **style)
+                extra_lines[key] = line
+        if xmin is not None or xmax is not None:
+            ax.set_xlim(left=xmin, right=xmax)
+        if ymin is not None or ymax is not None:
+            ax.set_ylim(bottom=ymin, top=ymax)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.tick_params(direction = "in", which = "both", top = True, right = True)
+        if data is not None:
+            ax.legend()
+        if logscale:
+            ax.set_yscale("log")
+        if grid:
+            ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
+        
+        # Slider
+        slider_ax = fig.add_subplot(gs[1])
+        slider_ax.set_facecolor("none")
+        for spine in slider_ax.spines.values():
+            spine.set_visible(False)
+        slider_ax.tick_params(left = False, bottom = False, labelleft = False, labelbottom = False)
+        slider = Slider(ax=slider_ax, label="Time step", valmin=0, valmax=self.ntime - 1, valinit=0, valstep=1, facecolor="#0c8b21")
+        
+        # Update function for slider
+        def update(val):
+            t = int(slider.val)
+            if use_femspace:
+                assert eval_points is not None, "eval_points must be provided when use_femspace is True"
+                y = values[:, t]  # type:ignore use precomputed values for efficiency
+            else:
+                y = self.u[:, t]
+            line_main.set_ydata(y)
+            if data is not None:
+                for key, line in extra_lines.items():
+                    line.set_ydata(data[key][:, t] if not use_femspace else data_values[key][:, t]) # type: ignore use precomputed values for efficiency
+            ax.set_ylabel(f"${ylabel}(x, {t * self.dt:.3f})$") # type: ignore
+            # keep limits fixed (important!)
+            if ymin is not None or ymax is not None:
+                ax.set_ylim(bottom=ymin, top=ymax)
+            if xmin is not None or xmax is not None:
+                ax.set_xlim(left=xmin, right=xmax)
+            fig.canvas.draw_idle()
+        slider.on_changed(update)
+        plt.show()
+
+    def _plot_2D_static(self, use_femspace: bool = False, eval_points: Optional[np.ndarray] = None, 
+                        plot_type: Literal["3d", "contour"] = "3d", contour_levels: int = 20, figsize: tuple = (7, 6), dpi: int = 100, 
+                        xlabel: str = r'$x$', ylabel: str = r'$y$', zlabel: str = r'$u(x, y)$', title: str = '2D Steady-State Solution', 
+                        xmin: Optional[float] = None, xmax: Optional[float] = None, ymin: Optional[float] = None, ymax: Optional[float] = None,
+                        zmin: Optional[float] = None, zmax: Optional[float] = None, logscale: bool = False, grid: bool = True, save_path: Optional[str] = None, **kwargs):
+        
+        assert plot_type in ["3d", "contour"], "plot_type must be either '3d' or 'contour'"
+        
+        # Evaluate solution at either mesh vertices or specified evaluation points using the FEM space for smoother visualization.
+        if use_femspace:
+            assert self.femspace is not None, "FEM space is required to evaluate at given eval_points"
+            assert eval_points is not None, "eval_points must be provided when use_femspace is True"
+            x_values = eval_points[:, 0]
+            y_values = eval_points[:, 1]
+            z_values = self._eval_at_points(eval_points)
+        else:
+            x_values = self.mesh.vertices[:, 0]
+            y_values = self.mesh.vertices[:, 1]
+            z_values = self.u
+
+        # Color mapping normalization based on the range of z_values for consistent coloring across different plots.
+        cmap = kwargs.pop("cmap", None) or "viridis"
+        if logscale:
+            z_values = np.log10(np.maximum(z_values, 1e-12))
+        norm = Normalize(vmin=np.min(z_values), vmax=np.max(z_values))
+
+        # Create the figure
+        fig = plt.figure(figsize = figsize, dpi = dpi, constrained_layout=True)
+
+        # Plot either a filled contour plot or a 3D surface plot based on the specified plot_type.
+        if plot_type == "contour":
+            ax = fig.add_subplot(111)
+            surf = ax.tricontourf(x_values, y_values, z_values, levels = contour_levels, norm = norm, cmap = cmap, **kwargs)
+        else:
+            ax = fig.add_subplot(111, projection = '3d')
+            surf = ax.plot_trisurf(x_values, y_values, z_values, norm = norm, cmap = cmap, **kwargs)
+
+        # Set axis limits if provided, otherwise they will be determined automatically by matplotlib.
+        if xmin is not None or xmax is not None:
+            ax.set_xlim(left=xmin, right=xmax)
+        if ymin is not None or ymax is not None:
+            ax.set_ylim(bottom=ymin, top=ymax)
+        if plot_type == "3d" and (zmin is not None or zmax is not None):
+            ax.set_zlim(bottom = zmin, top = zmax)
+
+        # Set axis labels and title for the plot.
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        if plot_type == "3d":
+            ax.set_zlabel(zlabel)
+        ax.set_title(title)
+
+        # Configure tick parameters to improve readability, especially when the plot is dense or has a lot of data points.
+        ax.tick_params(direction='in', which='both', top=True, right=True)
+
+        # Add a color bar to the plot to indicate the mapping of colors to solution values.
+        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label=zlabel)
+        
+        # Apply logarithmic scaling to the z-axis for 3D plots if logscale is True.
+        if logscale and plot_type == "3d":
+            ax.set_zscale("log") # type: ignore log scale for z-axis in 3D plot
+        
+        # Add a grid to the plot for better visibility of the data points
+        if grid:
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+        
+        # Save the figure to the specified path if save_path is provided, ensuring that the directory exists.
+        if save_path is not None:
+            import os
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
             plt.savefig(save_path, bbox_inches='tight', dpi=dpi)
 
         plt.show()
 
-    def visualize_3d(self, cmap = 'viridis', xlabel: str = 'x', ylabel: str = 'y', zlabel: str = 'u', title: str = 'FEM Solution 3D Surface'):
-        """
-        Plot FEM solution for 2D triangular mesh as a 3D surface.
-
-        Parameters
-        ----------
-        cmap : str, optional
-            Colormap for surface plot (default 'viridis').
-        """
-        # Use mesh vertices and elements
-        vertices = self.mesh.vertices
-        elements = self.mesh.elements
-
-        x = vertices[:, 0]
-        y = vertices[:, 1]
-        z = self.u.ravel()  # Ensure z is 1D
-
-        # Create a triangulation
-        triang = mtri.Triangulation(x, y, elements)
-
-        # Create 3D figure
-        fig = plt.figure(figsize=(8,6), dpi = 150)
-        ax = fig.add_subplot(111, projection='3d')
-
-        # Plot the surface
-        surf = ax.plot_trisurf(triang, z, cmap=cmap, edgecolor='k', linewidth=0.2, antialiased=True)
+    def _plot_2D_time(self, use_femspace: bool = False, eval_points: Optional[np.ndarray] = None, 
+                            plot_type: Literal["3d", "contour"] = "3d", contour_levels: int = 20, figsize: tuple = (7, 6), dpi: int = 100, 
+                            xlabel: str = r'$x$', ylabel: str = r'$y$', zlabel: str = r'$u(x, y)$', title: str = 'Evolution of Solution', 
+                            xmin: Optional[float] = None, xmax: Optional[float] = None, ymin: Optional[float] = None, ymax: Optional[float] = None, 
+                            zmin: Optional[float] = None, zmax: Optional[float] = None, logscale: bool = False, grid: bool = True, **kwargs):
         
-        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='Solution u')
-    
+        assert plot_type in ["3d", "contour"], "plot_type must be either '3d' or 'contour'"
+        
+        # Evaluate solution at either mesh vertices or specified evaluation points using the FEM space for smoother visualization.
+        if use_femspace:
+            assert self.femspace is not None, "FEM space is required to evaluate at given eval_points"
+            assert eval_points is not None, "eval_points must be provided when use_femspace is True"
+            values = np.zeros((eval_points.shape[0], self.ntime))
+            for t in range(self.ntime):
+                values[:, t] = self._eval_at_points(eval_points, t_index = t)
+            x_values = eval_points[:, 0]
+            y_values = eval_points[:, 1]
+            z_values = values[:, 0]
+        else:
+            x_values = self.mesh.vertices[:, 0]
+            y_values = self.mesh.vertices[:, 1]
+            z_values = self.u[:, 0]
+
+        # Color mapping normalization based on the range of z_values for consistent coloring across different plots.
+        cmap = kwargs.pop("cmap", None) or "viridis"
+        if logscale:
+            z_values = np.log10(np.maximum(z_values, 1e-12))
+        norm = Normalize(vmin=np.min(z_values), vmax=np.max(z_values))
+        
+        # Create the figure and plot either a filled contour plot or a 3D surface plot based on the specified plot_type.
+        t0, z0 = 0, all_values[:, 0]
+        fig = plt.figure(figsize = figsize, dpi = dpi, constrained_layout=True)
+        gs = fig.add_gridspec(nrows = 2, ncols = 1, height_ratios = [16, 1], hspace=0.25)
+
+        # For the initial plot, we create either a contour or surface plot based on the specified plot_type.
+        if plot_type == "contour":
+            ax = fig.add_subplot(gs[0])
+            surf = ax.tricontourf(x_values, y_values, z_values, levels = contour_levels, norm = norm, cmap = cmap, **kwargs)
+        else:
+            ax = fig.add_subplot(gs[0], projection='3d')
+            surf = ax.plot_trisurf(x_values, y_values, z_values, cmap = cmap, norm = norm, **kwargs)
+        
+        # Set axis limits if provided, otherwise they will be determined automatically by matplotlib.
+        if xmin is not None or xmax is not None:
+            ax.set_xlim(left=xmin, right=xmax)
+        if ymin is not None or ymax is not None:
+            ax.set_ylim(bottom=ymin, top=ymax)
+        if plot_type == "3d" and (zmin is not None or zmax is not None):
+            ax.set_zlim(bottom = zmin, top = zmax)
+
+        # Set axis labels and title for the plot.    
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
-        ax.set_zlabel(zlabel)
-        ax.set_title(title)
-
-        plt.show()
-
-    def _plot_error_1D_static(self, exact, figsize: tuple = (7, 4), dpi: int = 100, 
-                              xlabel: str = 'x', ylabel: str = 'error', title: str = '1D Steady-State Error', **kwargs):
-        x = self.mesh.vertices
-        err = self.u[:, 0] - exact(x)
-        plt.figure(figsize = figsize, dpi = dpi)
-        plt.plot(x, err, **kwargs)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.title(title)
-        plt.show()
-
-    def _plot_error_1D_time(self, exact, figsize: tuple = (7, 4), dpi: int = 100, 
-                            xlabel: str = 'x', ylabel: str = 'error', title: str = '1D Time-Dependent Error', **kwargs):
-        x = self.mesh.vertices
-        fig, ax = plt.subplots(figsize = figsize, dpi = dpi)
-        line, = ax.plot(x, self.u[:, 0] - exact(x, 0), **kwargs)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.set_title(title)
-
-        # Slider
-        ax_slider = plt.axes((0.2, 0.1, 0.6, 0.03))
-        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime - 1, valinit=0, valstep=1)
-
-        def update(val):
-            step = int(time_slider.val)
-            err = self.u[:, step] - exact(x, step*self.dt) # type: ignore
-            line.set_ydata(err)
-            ax.set_title(f'{title} | t={step*self.dt:.3f}') # type: ignore
-            fig.canvas.draw_idle()
-
-        time_slider.on_changed(update)
-        plt.show()
-
-    def _plot_error_2D_static(self, exact, figsize: tuple = (7, 6), dpi: int = 100, 
-                              xlabel: str = 'x', ylabel: str = 'y', zlabel: str = 'error', title: str = '2D Steady-State Error', **kwargs):
-        x = self.mesh.vertices[:, 0]
-        y = self.mesh.vertices[:, 1]
-        triang = mtri.Triangulation(x, y, self.mesh.elements)
-        err = self.u[:, 0] - exact(x, y)
-        fig = plt.figure(figsize = figsize, dpi = dpi)
-        ax = fig.add_subplot(111, projection='3d')
-        surf = ax.plot_trisurf(triang, err, **kwargs)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.set_zlabel(zlabel)
-        ax.set_title(title)
-        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='u_h - u_exact')
-        plt.show()
-
-    def _plot_error_2D_time(self, exact, figsize: tuple = (7, 6), dpi: int = 100, 
-                            xlabel: str = 'x', ylabel: str = 'y', zlabel: str = 'error', title: str = '2D Time-Dependent Error', **kwargs):
-        x = self.mesh.vertices[:, 0]
-        y = self.mesh.vertices[:, 1]
-        triang = mtri.Triangulation(x, y, self.mesh.elements)
-        fig = plt.figure(figsize = figsize, dpi = dpi)
-        ax = fig.add_subplot(111, projection='3d')
-        surf = ax.plot_trisurf(triang, self.u[:, 0] - exact(x, y, 0), **kwargs)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.set_zlabel(zlabel)
-        ax.set_title(title)
-        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='u_h - u_exact')
-
-        # Slider
-        ax_slider = plt.axes((0.2, 0.1, 0.6, 0.03))
-        time_slider = Slider(ax_slider, 'Time step', 0, self.ntime - 1, valinit=0, valstep=1)
-
-        def update(val):
-            step = int(time_slider.val)
-            err = self.u[:, step] - exact(x, y, step * self.dt) # type: ignore
-            ax.cla()
-            ax.plot_trisurf(triang, err, **kwargs)
-            ax.set_xlabel(xlabel)
-            ax.set_ylabel(ylabel)
+        if plot_type == "3d":
             ax.set_zlabel(zlabel)
-            ax.set_title(f'{title} | t={step * self.dt:.3f}') # type: ignore
-            fig.colorbar(surf, ax = ax, shrink = 0.5, aspect = 10, label = zlabel)
-            fig.canvas.draw_idle()
+        ax.set_title(title)
 
-        time_slider.on_changed(update)
+        # Add a color bar to the plot to indicate the mapping of colors to solution values.
+        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label=zlabel)
+
+        # Configure tick parameters to improve readability, especially when the plot is dense or has a lot of data points.
+        ax.tick_params(direction='in', which='both', top=True, right=True)
+        
+        # Apply logarithmic scaling to the z-axis for 3D plots if logscale is True.
+        if logscale:
+            ax.set_zscale("log") # type: ignore log scale for z-axis in 3D plot
+        
+        # Add a grid to the plot for better visibility of the data points
+        if grid:
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+
+        # Slider
+        slider_ax = fig.add_subplot(gs[1])
+        slider_ax.set_facecolor("none")
+        for spine in slider_ax.spines.values():
+            spine.set_visible(False)
+        slider_ax.tick_params(left = False, bottom = False, labelleft = False, labelbottom = False)
+        slider = Slider(ax=slider_ax, label="Time step", valmin=0, valmax=self.ntime - 1, valinit=0, valstep=1, facecolor="#0c8b21")
+        
+        # keep reference to surface
+        surf_container = {"surf": surf}
+
+        # update function for slider to update the surface plot based on the selected time step. 
+        def update(val):
+            step = int(slider.val)
+            # remove old surface only
+            surf_container["surf"].remove()
+            if use_femspace:
+                assert eval_points is not None, "eval_points must be provided when use_femspace is True"
+                z_values = values[:, step] # type: ignore use precomputed values for efficiency
+            else:
+                z_values = self.u[:, step]
+            if plot_type == "contour":
+                surf_container["surf"] = ax.tricontourf(x_values, y_values, z_values, levels = contour_levels, norm = norm, cmap = cmap, **kwargs)
+            else:
+                surf_container["surf"] = ax.plot_trisurf(x_values, y_values, z_values, norm = norm, cmap = cmap, **kwargs)
+            if plot_type == "3d":
+                ax.set_zlabel(f"$u(x, y, {step * self.dt:.3f})$") # type: ignore
+            if zmin is not None or zmax is not None:
+                ax.set_zlim(bottom=zmin, top=zmax)
+            fig.canvas.draw_idle()
+        slider.on_changed(update)
+
         plt.show()
     
-    def plot_error(self, exact: Callable, figsize: tuple = (7, 6), dpi: int = 100, 
-                   xlabel: str = 'x', ylabel: str = 'y', zlabel: str = 'error', title: str = 'Error', **kwargs):
+    def plot(self, use_femspace: bool = False, eval_points: Optional[np.ndarray] = None, 
+                plot_type: Literal["3d", "contour"] = "3d", contour_levels: int = 20, 
+                data: Optional[dict] = None, styles: Optional[dict] = None, figsize: tuple = (7, 6), dpi: int = 100, 
+                slabel: Optional[str] = None, xlabel: str = 'x', ylabel: str = 'y', zlabel: str = 'z', title: str = 'Solution', 
+                xmin: Optional[float] = None, xmax: Optional[float] = None, ymin: Optional[float] = None, ymax: Optional[float] = None, 
+                zmin: Optional[float] = None, zmax: Optional[float] = None, logscale: bool = False, grid: bool = True, save_path: Optional[str] = None, **kwargs):
         """
-        Plot the FEM solution error |u_h - u_exact| for both steady-state and time-dependent problems.
-
-        The error is computed at mesh vertices only, which is well-defined for Schwarz methods 
-        and higher-order FEM. Works for both 1D and 2D problems. For time-dependent problems, 
-        an interactive time slider is provided to visualize the error at each time step.
+        Plot the `self.u` values for 1D or 2D meshes, optionally plotting the error between `self.u` and 
+        a reference solution `data`.
+        
+        The error is computed as `self.u - data` at mesh vertices and visualized either as 
+        a line plot (1D) or a 3D surface plot (2D). For time-dependent problems, 
+        an interactive time slider is provided to visualize at each time step.
 
         Parameters
         ----------
-        exact : Callable
-                For time-dependent problems, should be exact(x, t) for 1D or exact(x, y, t) for 2D. 
-                For steady-state problems, should be exact(x) for 1D or exact(x, y) for 2D.
+        use_femspace : bool, optional
+            If True, evaluate the solution at the quadrature points of the FEM space for smoother visualization. 
+            If False, visualize the solution at the mesh vertices. (default: False)
+        eval_points : np.ndarray, optional
+            Points at which to evaluate the solution when use_femspace is True.
+            - For 1D meshes, should be of shape (n_eval,).
+            - For 2D meshes, should be of shape (n_eval, 2) where each row is (x, y).
+            Required if use_femspace is True.
+        plot_type : Literal["3d", "contour"], optional
+            For 2D meshes, specify whether to plot a 3D surface or a filled contour plot (default: "3d"). Ignored for 1D meshes.
+        contour_levels : int, optional
+            Number of contour levels to use when plot_type is "contour" (default: 20). Ignored for 1D meshes and 3D plots.
+        data : dict, optional
+            A dictionary of reference solutions to compare against, where keys are labels and values are numpy arrays of the same shape as `self.u`. 
+        styles : dict, optional
+            A dictionary mapping labels in `data` to style dictionaries for plotting (e.g., {'reference': {'label': 'Reference Solution', 'color': 'r', 'linestyle': '--'}}). Ignored if `data` is None.
         figsize : tuple, optional
                 Figure size for the plot (default (7, 6)).
         dpi : int, optional
                 Dots per inch for the plot (default 100).
+        slabel : Optional[str], optional
+                Label for the solution plot (default 'u').
         xlabel : str, optional
                 Label for the x-axis (default 'x').
         ylabel : str, optional
                 Label for the y-axis (default 'y').
         zlabel : str, optional
-                Label for the z-axis (default 'error').
+                Label for the z-axis (default 'u(x, y)').
         title : str, optional
-                Title of the plot (default 'Error').
+                Title of the plot (default 'Solution').
+        xmin, xmax, ymin, ymax, zmin, zmax : float, optional
+                Axis limits for the plot. If None, limits are determined automatically (default None).
+        logscale : bool, optional
+                If True, use a logarithmic scale for the y-axis (default False).
+        grid : bool, optional
+                If True, display a grid on the plot (default True).
+        save_path : str, optional
+                If provided, saves the figure to the given path (e.g., "error_plot.png" or "error_plot.pdf"). 
+                If None, the figure is not saved (default None).
         **kwargs : dict
                 Additional keyword arguments to pass to the specific plotting functions, 
                 e.g., cmap for colormap, levels for contour levels, etc.
         """
         if self.mesh.dim == 1 and self.ntime == 1:
-            self._plot_error_1D_static(exact, figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, title=title, **kwargs)
+            self._plot_1D_static(use_femspace, eval_points, data, figsize, dpi, slabel, xlabel, ylabel, title, 
+                                xmin, xmax, ymin, ymax, styles, logscale, grid, save_path, **kwargs)
         elif self.mesh.dim == 1 and self.ntime > 1:
-            self._plot_error_1D_time(exact, figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, title=title, **kwargs)
+            self._plot_1D_time(use_femspace, eval_points, data, figsize, dpi, slabel, xlabel, ylabel, title, 
+                               xmin, xmax, ymin, ymax, styles, logscale, grid, **kwargs)
         elif self.mesh.dim == 2 and self.ntime == 1:
-            self._plot_error_2D_static(exact, figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, zlabel=zlabel, title=title, **kwargs)
+            self._plot_2D_static(use_femspace=use_femspace, eval_points=eval_points, plot_type=plot_type, contour_levels=contour_levels, 
+                                figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, zlabel=zlabel, title=title,
+                                logscale=logscale, grid=grid, save_path=save_path, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax, zmin=zmin, zmax=zmax, **kwargs)
         elif self.mesh.dim == 2 and self.ntime > 1:
-            self._plot_error_2D_time(exact, figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, zlabel=zlabel, title=title, **kwargs)
+            self._plot_2D_time(use_femspace=use_femspace, eval_points=eval_points, plot_type=plot_type, contour_levels=contour_levels, 
+                               figsize=figsize, dpi=dpi, xlabel=xlabel, ylabel=ylabel, zlabel=zlabel, title=title, 
+                               logscale=logscale, grid=grid, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax, zmin=zmin, zmax=zmax, **kwargs)
         else:
             raise ValueError("Unsupported mesh dimension or time steps")
     
     @staticmethod
-    def plot_convergence(error_history: np.ndarray | dict[int, np.ndarray], logscale: bool = True, figsize: tuple = (6, 4), dpi: int = 150,
-                         xlabel: str = "Iteration number", ylabel: str = r"$\| u_h - u \|_{L^2}$", 
-                         title: str = r"Iteration vs $L^{2}$ Error", grid: bool = True, save_path: Optional[str] = None,
-                         styles: Optional[dict] = None, **kwargs):
+    def plot_iteration(data: np.ndarray | dict, logscale: bool = True, figsize: tuple = (6, 4), dpi: int = 150,
+                        xlabel: str = "Iteration number", ylabel: str = r"$\| u_h - u \|_{L^2}$", 
+                        title: str = r"Iteration vs $L^{2}$ Error", grid: bool = True, save_path: Optional[str] = None,
+                        styles: Optional[dict] = None, **kwargs):
         """
-        Plot convergence history of Schwarz iterations. This function is intended to be used with the error history tracked during Schwarz iterations, 
-        which can be stored in `self.error_history` and `self.error_subdomains`. It supports plotting the global error history as well as the error 
-        history for each subdomain in one plot if available.
+        Plot the iteration vs data values. 
+
+        If data is a numpy array, it is plotted as a single line. If data is a dictionary, each entry is plotted as a separate 
+        line with optional styles. This is useful when you want to visualize multiple obtained data values 
 
         Parameters
         ----------
-        error_history : np.ndarray or dict[int, np.ndarray]
-            If a numpy array of shape (niter,), it is treated as the global error history.
-            If a dictionary of shape {domainID: np.ndarray}, it is treated as the subdomain error history, where each value is a numpy array of shape (niter,).
+        data : np.ndarray or dict
+            If a numpy array of shape (niter,)
+            If a dictionary of shape {figID: np.ndarray} where each value is a numpy array of shape (niter,).
         logscale : bool, default True
             If True, use semilog-y scale (recommended for convergence plots).
         figsize : tuple, default (6, 4)
@@ -466,8 +649,8 @@ class SolutionVisualizer:
         title : str, default "Iteration vs L2 Error"
             Plot title.
         styles : dict, optional
-            A dictionary mapping subdomain IDs to style dictionaries for plotting 
-            (e.g., {'subdomain1': {'color': 'r', 'linestyle': '--'}, 'subdomain2': {'color': 'b', 'linestyle': '-'}}).
+            A dictionary mapping figure IDs to style dictionaries for plotting 
+            (e.g., {'fig1': {'label': 'Figure 1', 'color': 'r', 'linestyle': '--'}, 'fig2': {'label': 'Figure 2', 'color': 'b', 'linestyle': '-'}}).
         grid : bool, default True
             If True, display a grid on the plot.
         save_path : str, optional
@@ -476,25 +659,25 @@ class SolutionVisualizer:
             Additional keyword arguments to pass to plt.plot / plt.semilogy
             e.g., marker='o', color='r', linewidth=2, linestyle='--', alpha=0.7
         """
-        assert isinstance(error_history, (np.ndarray, dict)), "error_history must be a numpy array or a dictionary"
+        assert isinstance(data, (np.ndarray, dict)), "data must be a numpy array or a dictionary"
         plt.figure(figsize=figsize, dpi=dpi)
-        if isinstance(error_history, np.ndarray):
-            iterations = range(1, len(error_history) + 1)
+        if isinstance(data, np.ndarray):
+            iterations = range(1, len(data) + 1)
             if logscale:
-                plt.semilogy(iterations, error_history, **kwargs)
+                plt.semilogy(iterations, data, **kwargs)
             else:
-                plt.plot(iterations, error_history, **kwargs)
-            plt.xlim(1, len(error_history))
+                plt.plot(iterations, data, **kwargs)
+            #plt.xlim(1, len(data))
         else:
-            for domainid, value in error_history.items():
+            for domainid, value in data.items():
                 style = dict(kwargs)
                 if styles and domainid in styles:
                     style.update(styles[domainid])
                 if logscale:
-                    plt.semilogy(range(1, len(value) + 1), value, label=f"Subdomain {domainid}", **style)
+                    plt.semilogy(range(1, len(value) + 1), value, **style)
                 else:
-                    plt.plot(range(1, len(value) + 1), value, label=f"Subdomain {domainid}", **style)
-            plt.xlim(1, len(next(iter(error_history.values()))))
+                    plt.plot(range(1, len(value) + 1), value, **style)
+            #plt.xlim(1, len(next(iter(data.values()))))
             plt.legend(frameon=True, fancybox=False, edgecolor='black', framealpha=1.0)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)

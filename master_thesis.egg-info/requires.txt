@@ -1,0 +1,12 @@
+numpy
+scipy
+matplotlib
+triangle
+meshio
+pyvista
+
+[dev]
+jupyter
+ipykernel
+pytest
+black

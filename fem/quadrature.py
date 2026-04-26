@@ -72,7 +72,7 @@ def triangle_quadrature(p: int):
     return np.array(points), np.array(weights)
 
 # Numerical integration on the reference interval [0, 1]
-def interval_quadrature(order: int):
+def interval_quadrature(order: int) -> tuple[np.ndarray, np.ndarray]:
     """
     Return Gauss-Legendre quadrature points and weights on the interval [-1, 1].
 
@@ -102,6 +102,9 @@ def interval_quadrature(order: int):
 
     # Gauss–Legendre rule on [-1, 1]
     xi, w = np.polynomial.legendre.leggauss(order)
+
+    xi = np.asarray(xi)
+    w = np.asarray(w)
 
     # Map to [0, 1]
     points = 0.5 * (xi + 1.0)

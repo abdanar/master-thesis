@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "master-thesis"
+version = "0.1.0"
+description = "Reduced-Order Schwarz Waveform Relaxation"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Anar Abdullayev" }
+]
+
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "triangle",
+    "meshio",
+    "pyvista"
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter",
+    "ipykernel",
+    "pytest",
+    "black"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fem*", "utils*", "fom*", "rom*", "visualization*"]

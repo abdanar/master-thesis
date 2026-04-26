@@ -51,7 +51,7 @@ problem2D = HeatProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = e
 heat_solution2D = problem2D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5)
 
 # Define Reduced Schwarz problem with 2 subdomains and overlap of 1 layer of elements with version 1 of the decomposition algorithm
-roswrproblem2D = ROSWRProblem(femspace = femspace2D, t0 = t0, T = T, f = func2D, g = exact2D, h = h2D, n = 2, overlap = 1, version = 1)
+roswrproblem2D = ROSWRProblem(heat_problem = problem2D, n = 2, overlap = 1, version = 1)
 
 # Compute POD modes for the full-order problem to be used in the Reduced Schwarz method
 pod2D = POD(heat_problem = problem2D, ntime = 51, lift = 'nodal', theta = 0.5, r = 10)
@@ -87,10 +87,10 @@ subdomain_history = history2D.values[MetricType.CONVERGENCE_RATE]["subdomains"] 
 visualizer2D = visualize.SolutionVisualizer(femspace2D.mesh, roswr_solution2D)
 styles = {1: {'color': 'orange', 'linestyle': '-', 'linewidth': 0.8},
           2: {'color': 'blue', 'linestyle': '-', 'linewidth': 0.8}}
-visualizer2D.plot_convergence(error_history = global_history, ylabel = r"$\| u_{exact} - u_{ROSWR} \|_{L^2}$", save_path="figures/2D/fig2D_global_rom(exact).png",
+visualizer2D.plot_iteration(data = global_history, ylabel = r"$\| u_{exact} - u_{ROSWR} \|_{L^2}$", save_path="figures/2D/fig2D_global_rom(exact).png",
                               color = 'black', linestyle = '-', linewidth = 0.8)
 for i in range(len(time_indices)):
-    visualizer2D.plot_convergence(error_history = {domainID: subdomain_history[domainID][:, i] for domainID in subdomain_history}, title = r"Convergence Rate", xlabel = r"Iteration ($k$)", 
+    visualizer2D.plot_iteration(data = {str(domainID): subdomain_history[domainID][:, i] for domainID in subdomain_history}, title = r"Convergence Rate", xlabel = r"Iteration ($k$)", 
                                   ylabel = rf"$\dfrac{{\| u_{{exact}}(t_{{{time_indices[i]}}}) - u^{{k}}_{{ROSWR}}(t_{{{time_indices[i]}}}) \|_{{L^2}}}}{{\| u_{{exact}}(t_{{{time_indices[i]}}}) - u^{{k-1}}_{{ROSWR}}(t_{{{time_indices[i]}}}) \|_{{L^2}}}}$",
                                   save_path=f"figures/2D/fig2D_subdomains_time{time_indices[i]}_rom(exact).png", styles = styles)
 

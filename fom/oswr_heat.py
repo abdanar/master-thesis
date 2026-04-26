@@ -9,25 +9,14 @@ from utils.metrics import compute_metrics
 logger = get_logger(__name__)
 
 class OSWRProblem():
-    def __init__(self, femspace: FEMSpace, t0: float, T: float, f: Callable, g: Callable, h: Callable, n: int, overlap: int, version: int = 1):
+    def __init__(self, heat_problem: HeatProblem, n: int, overlap: int, version: int = 1):
         """
         Initialize an Overlapping Schwarz Waveform Relaxation (OSWR) problem for solving the heat equation.
 
         Parameters
         ----------
-        femspace : FEMSpace
-            The finite element space representing the full computational domain.
-        t0 : float
-            Initial time.
-        T : float
-            Final time.
-        f : Callable
-            The source function for the heat equation, defined as f(x, t) for 1D or f(x, y, t) for 2D problems.
-        g : Callable
-            The Dirichlet boundary condition function.
-            - It should be defined as g(x, t) for 1D or g(x, y, t) for 2D problems.
-        h : Callable
-            The initial condition function, defined as h(x) for 1D or h(x, y) for 2D problems.
+        heat_problem : HeatProblem
+            An instance of the `HeatProblem` class that defines the full-order heat problem to be solved using the OSWR method.
         n : int
             Number of subdomains to decompose the mesh into.
         overlap : int
@@ -35,24 +24,22 @@ class OSWRProblem():
         version : int, optional
             Version of the decomposition algorithm to use (default is 1).
         """
-        self.femspace = femspace
-        self.t0 = t0
-        self.T = T
-        self.f = f
-        self.g = g
-        self.h = h
+        self.femspace = heat_problem.femspace
+        self.t0 = heat_problem.t0
+        self.T = heat_problem.T
+        self.f = heat_problem.f
+        self.g = heat_problem.g
+        self.h = heat_problem.h
+        self.icond = heat_problem.icond
         self.n = n
         self.overlap = overlap
+        self.version = version
         self.nspace = self.femspace.nnodes
         self.verts = self.femspace.mesh.vertices
         self.boundary_nodes = self.femspace.boundary_nodes
         logger.info(f"[Schwarz Waveform Relaxation] Decomposing mesh into {n} subdomains with overlap of {overlap} layers using version {version} ...")
         self.subdomains, self.ltog, self.gtol, self.maps, self.membership = self.femspace.mesh.decompose(n = n, overlap = overlap, version = version)
         logger.info(f"[Schwarz Waveform Relaxation] Mesh decomposition completed. Number of subdomains: {len(self.subdomains)}")
-        if self.femspace.dim == 1:
-            self.icond = self.h(self.verts)
-        else:
-            self.icond = self.h(self.verts[:,0], self.verts[:,1])
 
     def restrict(self, global_solution: np.ndarray, domainID: int) -> np.ndarray:
         """
@@ -301,9 +288,9 @@ class OSWRProblem():
             idata[subdomain_id] = data
         return idata
 
-    def solve(self, time_grid: np.ndarray, theta: float = 0.5, lift: Literal['nodal', 'harmonic', 'parabolic'] = 'nodal', method: Literal['AS', 'RAS'] = 'RAS', 
-              solver: LinearSolver = DirectSolver(), maxiter: int = 100, tol: float = 1e-3, criterion: Callable[[dict[int, np.ndarray], dict[int, np.ndarray]], float] = max_difference,
-              histconfig: Optional[HistoryConfig] = None) -> tuple[History, np.ndarray] | np.ndarray:
+    def solve(self, time_grid: np.ndarray, theta: float = 1.0, lift: Literal['nodal', 'harmonic', 'parabolic'] = 'nodal', method: Literal['AS', 'RAS'] = 'RAS', 
+            solver: LinearSolver = DirectSolver(), maxiter: int = 100, tol: float = 1e-9, criterion: Callable[[dict[int, np.ndarray], dict[int, np.ndarray]], float] = max_difference,
+            combine: bool = True, histconfig: Optional[HistoryConfig] = None) -> tuple[History, dict | np.ndarray] | dict | np.ndarray:
         """
         Solve the Heat problem using the Overlapping Schwarz Waveform Relaxation (OSWR) method.
 
@@ -312,7 +299,7 @@ class OSWRProblem():
         time_grid : np.ndarray
             Array of time points, including the initial condition at t0, so the time points 
             are t0, t1, ..., t_{ntime-1} with t_{ntime-1} = T.
-        theta : float, default = 0.5
+        theta : float, default = 1.0
             Parameter for the theta time-stepping scheme.
         lift : Literal['nodal', 'harmonic', 'parabolic'], default = 'nodal'
             Type of lifting function used to solve the local problems. Available options are 
@@ -325,19 +312,25 @@ class OSWRProblem():
             inherits from `LinearSolver`. Default is `DirectSolver()`.
         maxiter : int, default = 100
             Maximum number of Schwarz iterations.
-        tol : float, default = 1e-3
+        tol : float, default = 1e-9
             Convergence tolerance for the stopping criterion.
         criterion : Callable, default = `max_difference`
             Convergence criterion function. It should accept the old and new subdomain solutions 
-            and return a float representing the error.
+            and return a float representing the error, i.e., input values are dictionaries with keys 
+            as subdomain IDs and values as arrays of shape `(nnodes, ntime)` representing the local 
+            solution for each subdomain at all time steps. The function should compute a scalar error 
+            value that is used to check for convergence.
+        combine : bool, default = True
+            If True, the final global solution is assembled from the subdomain solutions. If False, a dictionary of subdomain solutions is returned.
         histconfig : HistoryConfig, optional
             Configuration for tracking convergence history.
         
         Returns
         -------
-        np.ndarray, shape (nspace, ntime)
-            The computed global solution at the FEM nodes for all time steps, assembled from the subdomain solutions 
-            using the specified Schwarz method. Each column corresponds to the solution at a specific time step.
+        If `histconfig` is provided, returns a tuple containing:
+        - `history`: An instance of the `History` class that contains the recorded convergence history according to the specified `histconfig`.
+        - `solution`: The final global solution assembled from the subdomain solutions at the last iteration, returned as a NumPy array of shape `(nspace, ntime)`
+        if `combine` is True, or a dictionary of subdomain solutions if `combine` is False.
         """
         assert theta >= 0 and theta <= 1, f"Invalid theta value {theta}. Must be in [0, 1]."
         assert lift in ('nodal', 'harmonic', 'parabolic'), f"Invalid lift type '{lift}'. Must be 'nodal', 'harmonic' or 'parabolic'."
@@ -349,23 +342,30 @@ class OSWRProblem():
             f"dim: {self.femspace.dim}D | "
             f"subdomains: {len(self.subdomains)} | "
             f"method: {method} | "
+            f"theta: {theta} | "
+            f"lift: {lift} | "
+            f"version: {self.version} | "
             f"maxiter: {maxiter} | "
             f"tol: {tol:.2e}")
         logger.info("="*80)
 
+        # Total number of time steps, including the initial condition at t0, so the time points are t0, t1, ..., t_{ntime-1} with t_{ntime-1} = T.
+        ntime = len(time_grid)
+
         # Initialize error history if `histconfig` is provided
         history = initialize_history(histconfig) if histconfig is not None else None
 
-        # Precompute Dirichlet boundary values for all time steps at the boundary nodes
-        if self.femspace.dim == 1:
-            self.dirichlet_values = self.g(self.verts[self.boundary_nodes][:, None], time_grid[None, :])
-        elif self.femspace.dim == 2:
-            self.dirichlet_values = self.g(self.verts[self.boundary_nodes][:, 0][:, None], self.verts[self.boundary_nodes][:, 1][:, None], time_grid[None, :])
+        if isinstance(self.g, np.ndarray):
+            assert self.g.shape == (self.femspace.nbdnodes, ntime), f"Invalid shape for boundary values array. Expected {(self.femspace.nbdnodes, ntime)}, got {self.g.shape}."
+            self.dirichlet_values = self.g
         else:
-            raise ValueError(f"Unsupported dimension {self.femspace.dim}. Only 1D and 2D are supported.")
-
-        # Total number of time steps, including the initial condition at t0, so the time points are t0, t1, ..., t_{ntime-1} with t_{ntime-1} = T.
-        ntime = len(time_grid)
+            # Precompute Dirichlet boundary values for all time steps at the boundary nodes
+            if self.femspace.dim == 1:
+                self.dirichlet_values = self.g(self.verts[self.boundary_nodes][:, None], time_grid[None, :])
+            elif self.femspace.dim == 2:
+                self.dirichlet_values = self.g(self.verts[self.boundary_nodes][:, 0][:, None], self.verts[self.boundary_nodes][:, 1][:, None], time_grid[None, :])
+            else:
+                raise ValueError(f"Unsupported dimension {self.femspace.dim}. Only 1D and 2D are supported.")
  
         # Initialize local solution data for each subdomain, which will be updated iteratively.
         data = self.initial_data(ntime)
@@ -423,7 +423,9 @@ class OSWRProblem():
         logger.info("\033[92m[Schwarz Waveform Relaxation]\033[0m Solver finished successfully.")
         logger.info("="*80)
 
+        solution = self.combine(ntime = ntime, method = method, data = data) if combine else data
+
         if history is not None:
-            return history, self.combine(ntime = ntime, method = method, data = data)
+            return history, solution
         else:
-            return self.combine(ntime = ntime, method = method, data = data) 
+            return solution

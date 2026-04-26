@@ -45,7 +45,7 @@ problem1D = HeatProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = e
 heat_solution1D = problem1D.solve(time_grid = time_grid, lift = 'nodal', theta = 0.5)
 
 # Define Schwarz problem with 2 subdomains and overlap of 1 layer of elements
-oswrproblem1D = OSWRProblem(femspace = femspace1D, t0 = t0, T = T, f = func1D, g = exact1D, h = h1D, n = 2, overlap = 1)
+oswrproblem1D = OSWRProblem(heat_problem = problem1D, n = 2, overlap = 1)
 
 # Define a history configuration
 subdomains = [1, 2]
@@ -54,8 +54,8 @@ metrics = [MetricSpec(MetricType.ABSOLUTE_ERROR, SpatialMode.GLOBAL, TemporalMod
            MetricSpec(MetricType.CONVERGENCE_RATE, SpatialMode.SUBDOMAINS, TemporalMode.TIME)]
 config = HistoryConfig(metrics = metrics, norm = NormType.L2, exact = exact1D, uh = heat_solution1D, time_indices = time_indices, subdomains = subdomains, mode = 'exact')
 
-# Solve the problem using the Schwarz method with RAS, nodal lifting and theta method with theta = 0.5 (Crank-Nicolson)
-history1D, oswr_solution1D = oswrproblem1D.solve(time_grid = time_grid, theta = 0.5, lift = 'nodal', method = 'RAS', maxiter = 400, tol = 1e-12, histconfig = config)
+# Solve the problem using the Schwarz method with RAS, nodal lifting and theta method with theta = 1 (implicit Euler) and store the history of the specified metrics in the config object
+history1D, oswr_solution1D = oswrproblem1D.solve(time_grid = time_grid, theta = 1, lift = 'nodal', method = 'RAS', maxiter = 150, tol = 1e-9, histconfig = config)
 
 # Error analysis (compute L2 error between schwarz solution and exact solution, as well as between schwarz solution and fem solution for each time step and report the maximum error across all time steps)
 error1D = np.linalg.norm(oswr_solution1D - exact1D(femspace1D.mesh.vertices[:, None], time_grid[None, :]), axis = 0)
@@ -63,15 +63,19 @@ error_fem1D = np.linalg.norm(heat_solution1D - oswr_solution1D, axis = 0)
 print("max error (schwarz vs exact):", error1D.max())
 print("max error (schwarz vs fem):", error_fem1D.max())
 
-# Solution visualization
+# Visualize the error between the exact and OSWR solutions at the mesh vertices
+error1D_oswr = np.abs(exact1D(femspace1D.mesh.vertices[:, None], time_grid[None, :]) - oswr_solution1D) + 1e-14 # add small value to avoid log(0) issues
+visualizer1D = visualize.SolutionVisualizer(mesh = femspace1D.mesh, u = error1D_oswr, dt = time_grid[1] - time_grid[0], femspace = femspace1D)
+visualizer1D.plot(figsize = (6, 3), dpi = 150, logscale = True, ylabel = 'e', ymin = 1e-14, ymax = 1e-0, linewidth = 0.7, linestyle = '-', color = 'red', title = "Error between Exact and OSWR Solutions")
+
+# Visualize the stored error between the exact and OSWR solutions
 global_history = history1D.values[MetricType.ABSOLUTE_ERROR]["global"] # shape (niter,)
 subdomain_history = history1D.values[MetricType.CONVERGENCE_RATE]["subdomains"] # shape dictionary of shape {domainID: shape (niter, ntime)}
-visualizer1D = visualize.SolutionVisualizer(femspace1D.mesh, oswr_solution1D)
-styles = {1: {'color': 'orange', 'linestyle': '-', 'linewidth': 0.8},
-          2: {'color': 'blue', 'linestyle': '-', 'linewidth': 0.8}}
-visualizer1D.plot_convergence(error_history = global_history, dpi = 300, ylabel = r"$\| u_{exact} - u_{OSWR} \|_{L^2}$", save_path="figures/1D/fig1D_global_fom(exact).png",
-                              color = 'black', linestyle = '-', linewidth = 0.8)
+styles = {1: {'label': 'Subdomain 1', 'color': 'orange', 'linestyle': '-', 'linewidth': 0.6},
+          2: {'label': 'Subdomain 2', 'color': 'blue', 'linestyle': '-', 'linewidth': 0.6}}
+visualizer1D.plot_iteration(data = global_history, dpi = 150, ylabel = rf"$\| u_{{exact}} - u_{{OSWR}} \|_{{L^2(0,{T};L^2({vert1D[0]}, {vert1D[-1]}))}}$", save_path="figures/1D/oswr/fig1D_global_fom(exact).png",
+                            color = 'black', linestyle = '-', linewidth = 0.7)
 for i in range(len(time_indices)):
-    visualizer1D.plot_convergence(error_history = {domainID: subdomain_history[domainID][:, i] for domainID in subdomain_history}, dpi = 300, title = r"Convergence Rate", xlabel = r"Iteration ($k$)", 
-                                  ylabel = rf"$\dfrac{{\| u_{{exact}}(t_{{{time_indices[i]}}}) - u^{{k}}_{{OSWR}}(t_{{{time_indices[i]}}}) \|_{{L^2}}}}{{\| u_{{exact}}(t_{{{time_indices[i]}}}) - u^{{k-1}}_{{OSWR}}(t_{{{time_indices[i]}}}) \|_{{L^2}}}}$",
-                                  save_path=f"figures/1D/fig1D_subdomains_time{time_indices[i]}_fom(exact).png", styles = styles)
+    visualizer1D.plot_iteration(data = {domainID: subdomain_history[domainID][:, i] for domainID in subdomain_history}, dpi = 150, title = r"Convergence Rate", xlabel = r"Iteration ($k$)", 
+                                ylabel = rf"$\dfrac{{\| u_{{exact}}(t_{{{time_indices[i]}}}) - u^{{k}}_{{OSWR}}(t_{{{time_indices[i]}}}) \|_{{L^2}}}}{{\| u_{{exact}}(t_{{{time_indices[i]}}}) - u^{{k-1}}_{{OSWR}}(t_{{{time_indices[i]}}}) \|_{{L^2}}}}$",
+                                save_path=f"figures/1D/oswr/fig1D_subdomains_time{time_indices[i]}_fom(exact).png", styles = styles)

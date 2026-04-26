@@ -38,7 +38,7 @@ class ErrorNorms:
             Gradient of the exact solution, required for H¹-based norms.
             Should return a vector at given coordinates.
         time : np.ndarray, optional
-            Time points corresponding to the solution snapshots, required for time-dependent norms.
+            Time points corresponding to the solution snapshots, required for time-dependent norms, i.e., t_0, t_1, ..., t_n = T.
         mode : {'auto', 'exact', 'fem', 'self'}, default='auto'
             Comparison mode:
                 - 'auto': uses u2 if provided, else u_exact
@@ -336,12 +336,12 @@ class ErrorNorms:
 
     def linf_error_time(self) -> float:
         """
-        Compute the L∞ error integrated over time for time-dependent solutions. The L∞ error is computed 
+        Compute the L∞ error integrated over interior(time) for time-dependent solutions. The L∞ error is computed 
         at each time step and the maximum error across all time steps is returned. The formula is:
 
-            max_{t ∈ time} ||u1(t) - u2(t)||_{L∞}
+            max_{t ∈ (t_1, ..., t_{n-1})} ||u1(t) - u2(t)||_{L∞}
         or
-            max_{t ∈ time} ||u1(t) - u_exact(t)||_{L∞}
+            max_{t ∈ (t_1, ..., t_{n-1})} ||u1(t) - u_exact(t)||_{L∞}
 
         depending on the mode. If `time` is not provided or has only one time point, 
         it falls back to the static L∞ error computation.
@@ -351,7 +351,7 @@ class ErrorNorms:
             return self.linf_error()  # fallback to static norm
         logger.debug("Computing L∞ error integrated over time by taking maximum across time steps...")
         max_err = 0.0
-        for t_index in range(self.nt):
+        for t_index in range(1, len(self.time) - 1):
             max_err = max(max_err, self.linf_error_at_time(t_index))
         return max_err
 

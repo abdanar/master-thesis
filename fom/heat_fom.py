@@ -30,7 +30,7 @@ class HeatProblem:
             Source term function. Should be defined as f(x, t) for 1D or f(x, y, t) for 2D problems.
         g : Callable or np.ndarray
             Dirichlet boundary condition. Can be either a function defined as g(x, t) for 1D or g(x, y, t) for 2D problems, 
-            or a numpy array of shape (n_boundary_nodes, n_time_steps) containing the boundary values at each time step.
+            or a numpy array of shape (nbdnodes, ntime) containing the boundary values at each time step.
             If numpy array is provided, for each time step n, the boundary values should be given in the order corresponding 
             to the boundary nodes in `femspace.boundary_nodes`.
         h : Callable
@@ -243,7 +243,7 @@ class HeatProblem:
         step = 0
         t = self.t0
         bar_format = ("{desc}: \033[94m{bar}\033[0m | {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}")
-        with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, bar_format = bar_format, disable = not sys.stdout.isatty()) as pbar:
+        with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, bar_format = bar_format, disable = False) as pbar:
             for step in pbar:
                 pbar.set_postfix_str(f"\033[93mt={t:.3e}\033[0m")
                 t += dt

@@ -2,12 +2,13 @@ import numpy as np
 from utils.logger import get_logger
 from fom.heat_fom import HeatProblem
 from fem.linearsolver import DirectSolver, LinearSolver
-from typing import Optional
+from typing import Optional, Literal
 from scipy.linalg import cholesky, solve_triangular
 logger = get_logger(__name__)
 
 class POD:
-    def __init__(self, heat_problem: HeatProblem, ntime: int, lift: str, theta: float, r: int, weight: Optional[np.ndarray] = None, energy_tol: float = 0.999, solver: LinearSolver = DirectSolver()):
+    def __init__(self, heat_problem: HeatProblem, time_grid: np.ndarray, lift: Literal['nodal', 'harmonic', 'parabolic'], theta: float, r: int, 
+                g: Optional[np.ndarray] = None, weight: Optional[np.ndarray] = None, energy_tol: float = 0.999, solver: LinearSolver = DirectSolver()):
         """
         Proper Orthogonal Decomposition (POD) for model order reduction of the Heat problem.
 
@@ -15,14 +16,16 @@ class POD:
         ----------
         heat_problem : HeatProblem
             The full-order Heat problem to be reduced.
-        ntime : int
-            Number of time steps (snapshots).
-        lift : str
+        time_grid : np.ndarray
+            Array of time points for the simulation.
+        lift : Literal['nodal', 'harmonic', 'parabolic']
             Lifting method.
         theta : float
             Theta parameter for the time integration scheme.
         r : int
             Fixed reduced dimension.
+        g : np.ndarray, optional
+            Numpy array of shape (nbdnodes, len(time_grid)) containing the boundary values at each time step.
         weight : np.ndarray, optional
             Weight matrix for the inner product (used in weighted POD).
         energy_tol : float
@@ -31,20 +34,23 @@ class POD:
             Linear solver to use for the full-order problem.
         """
         self.hp = heat_problem
-        self.ntime = ntime
+        self.time_grid = time_grid
         self.lift = lift
         self.theta = theta
         self.solver = solver
         self.r = r
         self.energy_tol = energy_tol
         self.weight = weight
-
-        # Compute POD basis
-        self.V, self.singular_values = self.compute_modes()
+        self.g = g
+        self.ntime = len(time_grid)
 
     def compute_snapshots(self):
-        return self.hp.solve(time_grid=np.linspace(self.hp.t0, self.hp.T, self.ntime), lift=self.lift, theta=self.theta, solver=self.solver, homogeneous=True) # shape (n_interior, n_time)
-
+        if isinstance(self.hp.g, np.ndarray):
+            assert self.g is not None, "Boundary condition array g must be provided if hp.g is a numpy array."
+            return self.hp.solve(time_grid=self.time_grid, lift=self.lift, theta=self.theta, solver=self.solver, g_new = self.g, homogeneous=True) # shape (n_interior, n_time)
+        else:
+            return self.hp.solve(time_grid=self.time_grid, lift=self.lift, theta=self.theta, solver=self.solver, homogeneous=True) # shape (n_interior, n_time)
+    
     def compute_modes(self):
         logger.debug("Computing snapshots for POD...")
         snapshot_matrix = self.compute_snapshots()

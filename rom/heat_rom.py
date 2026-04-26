@@ -158,7 +158,7 @@ class ReducedHeatProblem:
         step = 0
         t = self.t0
         bar_format = ("{desc}: \033[94m{bar}\033[0m | {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}")
-        with trange(nsteps, desc = "\033[92mReduced Heat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, bar_format = bar_format, disable = not sys.stdout.isatty()) as pbar:
+        with trange(nsteps, desc = "\033[92mReduced Heat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, bar_format = bar_format, disable = False) as pbar:
             for step in pbar:
                 pbar.set_postfix_str(f"\033[93mt={t:.3e}\033[0m")
                 t += dt

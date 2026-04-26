@@ -1,0 +1,7 @@
+numpy
+scipy
+matplotlib
+rich
+tqdm
+pymetis
+git+https://github.com/drufat/triangle.git

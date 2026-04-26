@@ -13,14 +13,17 @@ logger = get_logger(__name__)
 # Configure matplotlib to use LaTeX for rendering text with support for mathematical symbols and equations, 
 # and set the font to a serif style for a more traditional look. This enhances the visual quality of the plots, 
 # especially when displaying mathematical expressions in axis labels, titles, and annotations.
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "text.latex.preamble": r"""
-        \usepackage{amsmath}
-        \usepackage{amsfonts}
-        \usepackage{amssymb}
-    """})
+try:
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "text.latex.preamble": r"""
+            \usepackage{amsmath}
+            \usepackage{amsfonts}
+            \usepackage{amssymb}
+        """})
+except:
+    print("LaTeX not available, falling back to default matplotlib rendering.")
 
 class MeshVisualizer:
     def __init__(self, mesh: Mesh):

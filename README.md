@@ -83,3 +83,25 @@ export PATH="/Library/TeX/texbin:$PATH"
 ### ⚠️ Fallback Behavior
 
 If LaTeX is not installed on the system, the project will continue running normally without errors, and automatically fall back to default Matplotlib text rendering, displaying mathematical text using standard Matplotlib fonts instead of LaTeX. No code changes are required for this fallback behavior.
+
+## 📄 How to Compile the LaTeX Thesis
+
+The thesis is written in LaTeX and can be compiled automatically using the provided build script. This ensures that all references, citations, and cross-references are resolved correctly.
+
+
+Run the following command from the `thesis/` directory:
+
+```bash
+./build.sh
+```
+
+The build script uses latexmk for automatic multi-pass compilation, and all auxiliary files and logs are stored inside the output/ directory. If the script does not run, ensure it has execution permissions:
+```bash
+chmod +x build.sh
+```
+
+After successful compilation, the generated PDF will be located in:
+
+```bash
+output/main.pdf
+```

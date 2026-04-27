@@ -7,7 +7,7 @@ This repository contains the code and experiments for my master's thesis on "Red
 ### 1. Clone the repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/abdanar/master-thesis.git
 cd master-thesis
 ```
 ### 2. Create a virtual environment (optional but recommended)

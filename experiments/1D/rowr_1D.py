@@ -92,12 +92,36 @@ visualizer1D.plot(data = {'exactvsOSWR': error1D_oswr}, styles = styles_error, f
                     ymin = 1e-14, ymax = 1e-0, linewidth = 0.8, slabel = "ROSWR", ylabel = 'e',
                     linestyle = '-', color = 'red', title = "OSWR vs ROSWR Error Comparison")
 
+# Compute the absolute error between the exact and ROSWR solutions for different values of r (number of POD modes) and store the histories for each r value
+r_values = [5, 10, 15, 20]
+r_histories = {}
+metrics_r = [MetricSpec(MetricType.ABSOLUTE_ERROR, SpatialMode.GLOBAL, TemporalMode.STATIC)]
+config_r = HistoryConfig(metrics = metrics_r, norm = NormType.L2, exact = exact1D, mode = 'exact')
+for r in r_values:
+    pod1D = POD(heat_problem = problem1D, time_grid = tparams, lift = 'nodal', theta = 1, r = r)
+    projs1D = proj_matrices(femspace = femspace1D, roswrproblem = roswrproblem1D, pod = pod1D)
+    history1D_r, roswr_solution1D_r = roswrproblem1D.solve(projs = projs1D, time_grid = time_grid, theta = 1, lift = 'nodal', method = 'RAS', maxiter = 400, tol = 1e-14, histconfig = config_r)
+    r_histories[r] = history1D_r
+
+# Visualize the global absolute error between the exact and ROSWR solutions for different values of r across iterations and include OSWR error for comparison
+history1D_oswr, oswr_solution1D_r = oswrproblem1D.solve(time_grid = time_grid, theta = 1, lift = 'nodal', method = 'RAS', maxiter = 400, tol = 1e-14, histconfig = config_r)
+miniter = min([len(r_histories[r].values[MetricType.ABSOLUTE_ERROR]["global"]) for r in r_values] + [len(history1D_oswr.values[MetricType.ABSOLUTE_ERROR]["global"])])
+r_data = {r: r_histories[r].values[MetricType.ABSOLUTE_ERROR]["global"][:miniter] for r in r_values}
+r_data["OSWR"] = history1D_oswr.values[MetricType.ABSOLUTE_ERROR]["global"][:miniter]
+styles_r = {5: {'label': 'r=5', 'color': 'black', 'linestyle': '-', 'linewidth': 0.6},
+            10: {'label': 'r=10', 'color': 'orange', 'linestyle': '-', 'linewidth': 0.6},
+            15: {'label': 'r=15', 'color': 'green', 'linestyle': '-', 'linewidth': 0.6},
+            20: {'label': 'r=20', 'color': 'blue', 'linestyle': '-', 'linewidth': 0.6},
+            "OSWR": {'label': 'OSWR', 'color': 'red', 'linestyle': '--', 'linewidth': 0.6}}
+visualizer1D.plot_iteration(data = r_data, dpi = 300, ylabel = rf"$\| u_{{exact}} - u^{{k}} \|_{{L^2(0,{T};L^2({vert1D[0]}, {vert1D[-1]}))}}$", xlabel = r"Iteration ($k$)",
+                            save_path="figures/1D/roswr/fig1D_global_r_comparison(exact).png", styles = styles_r, title = "Global Absolute Error for Different Values of r")
+
 # Visualize the stored error between the exact and ROSWR solutions
 global_history = history1D.values[MetricType.ABSOLUTE_ERROR]["global"] # shape (niter,)
 subdomain_history = history1D.values[MetricType.CONVERGENCE_RATE]["subdomains"] # shape dictionary of shape {domainID: shape (niter, ntime)}
 styles = {1: {'label': 'Subdomain 1', 'color': 'orange', 'linestyle': '-', 'linewidth': 0.6},
           2: {'label': 'Subdomain 2', 'color': 'blue', 'linestyle': '-', 'linewidth': 0.6}}
-visualizer1D.plot_iteration(data = global_history, dpi = 300, ylabel = rf"$\| u_{{exact}} - u_{{ROSWR}} \|_{{L^2(0,{T};L^2({vert1D[0]}, {vert1D[-1]}))}}$", save_path="figures/1D/roswr/fig1D_global_rom(exact).png",
+visualizer1D.plot_iteration(data = global_history, dpi = 300, ylabel = rf"$\| u_{{exact}} - u^{{k}}_{{ROSWR}} \|_{{L^2(0,{T};L^2({vert1D[0]}, {vert1D[-1]}))}}$", xlabel = r"Iteration ($k$)", save_path="figures/1D/roswr/fig1D_global_rom(exact).png",
                             color = 'black', linestyle = '-', linewidth = 0.7)
 for i in range(len(time_indices)):
     visualizer1D.plot_iteration(data = {domainID: subdomain_history[domainID][:, i] for domainID in subdomain_history}, dpi = 300, title = r"Convergence Rate", xlabel = r"Iteration ($k$)", 

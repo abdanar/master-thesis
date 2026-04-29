@@ -25,6 +25,7 @@ class ROSWRProblem():
         version : int, optional
             Version of the decomposition algorithm to use (default is 1).
         """
+        self.heat_problem = heat_problem
         self.femspace = heat_problem.femspace
         self.t0 = heat_problem.t0
         self.T = heat_problem.T
@@ -41,7 +42,8 @@ class ROSWRProblem():
         logger.info(f"[Reduced Schwarz Waveform Relaxation] Decomposing mesh into {n} subdomains with overlap of {overlap} layers using version {version} ...")
         self.subdomains, self.ltog, self.gtol, self.maps, self.membership = self.femspace.mesh.decompose(n = n, overlap = overlap, version = version)
         logger.info(f"[Reduced Schwarz Waveform Relaxation] Mesh decomposition completed. Number of subdomains: {len(self.subdomains)}")
-
+        self.iterates = {}
+    
     def restrict(self, global_solution: np.ndarray, domainID: int) -> np.ndarray:
         """
         Restrict a global solution to a specific subdomain.
@@ -291,7 +293,7 @@ class ROSWRProblem():
 
     def solve(self, projs: dict[int, np.ndarray], time_grid: np.ndarray, theta: float = 1.0, lift: str = 'nodal', method: Literal['AS', 'RAS'] = 'RAS', 
             solver: LinearSolver = DirectSolver(), maxiter: int = 100, tol: float = 1e-9, criterion: Callable[[dict[int, np.ndarray], dict[int, np.ndarray]], float] = max_difference,
-            combine: bool = True, histconfig: Optional[HistoryConfig] = None) -> tuple[History, dict | np.ndarray] | dict | np.ndarray:
+            combine: bool = True, store_solution: Optional[list] = None, histconfig: Optional[HistoryConfig] = None) -> tuple[History, dict | np.ndarray] | dict | np.ndarray:
         """
         Solve the Reduced Overlapping Schwarz Waveform Relaxation (ROSWR) method.
 
@@ -319,9 +321,16 @@ class ROSWRProblem():
             Convergence tolerance for the stopping criterion.
         criterion : Callable, default = `max_difference`
             Convergence criterion function. It should accept the old and new subdomain solutions 
-            and return a float representing the error.
+            and return a float representing the error, i.e., input values are dictionaries with keys 
+            as subdomain IDs and values as arrays of shape `(nnodes, ntime)` representing the local 
+            solution for each subdomain at all time steps. The function should compute a scalar error 
+            value that is used to check for convergence.
         combine : bool, default = True
             If True, the final global solution is assembled from the subdomain solutions. If False, a dictionary of subdomain solutions is returned.
+        store_solution : list, optional
+            If provided, for the given iteration indices, the corresponding subdomain solutions will be stored in a dictionary
+            with keys as iteration indices and values as dictionary of subdomain solutions with keys as subdomain IDS and values
+            as arrays of shape `(nnodes, ntime)` representing the local solution for each subdomain at all time steps.
         histconfig : HistoryConfig, optional
             Configuration for tracking convergence history.
 
@@ -378,8 +387,9 @@ class ROSWRProblem():
         degree = self.femspace.degree
         for subdomain_id, subdomain in self.subdomains.items():
             subfem = FEMSpace(mesh = subdomain, domain = domain, space = space, degree = degree)
+            h_local = self.construct_initial(subdomain_id)
             g_local = self.construct_dirichlet_bc(subfemspace = subfem, ntime = ntime, data = data, method = method, domainID = subdomain_id)
-            subfom = HeatProblem(femspace = subfem, t0 = self.t0, T = self.T, f = self.f, g = g_local, h = self.h)
+            subfom = HeatProblem(femspace = subfem, t0 = self.t0, T = self.T, f = self.f, g = g_local, h = h_local)
             subfems[subdomain_id] = subfem
             subroms[subdomain_id] = ReducedHeatProblem(heat_problem = subfom, V = projs[subdomain_id])
 
@@ -408,8 +418,12 @@ class ROSWRProblem():
                     metric_values = values.get(metric_spec.name)
                     if metric_values is not None:
                         record(history, metric_spec, metric_values)
-            
-            # Update the global solution
+
+            # Store the (reconstructed) subdomain solutions for the current iteration if `store_solution` is provided and the current iteration index is in `store_solution`.
+            if store_solution is not None and (iter + 1) in store_solution:
+                self.iterates[iter + 1] = {subdomain_id: new_data[subdomain_id] for subdomain_id in new_data}
+
+            # Update the data for the next iteration
             data = new_data
 
             if error < tol:

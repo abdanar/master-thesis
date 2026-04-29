@@ -10,7 +10,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 class HeatProblem:
-    def __init__(self, femspace: FEMSpace, t0: float, T: float, f: Callable, g: Callable | np.ndarray, h: Callable):
+    def __init__(self, femspace: FEMSpace, t0: float, T: float, f: Callable, g: Callable | np.ndarray, h: Callable | np.ndarray):
         """
         Initializes the following heat problem:
 
@@ -33,8 +33,9 @@ class HeatProblem:
             or a numpy array of shape (nbdnodes, ntime) containing the boundary values at each time step.
             If numpy array is provided, for each time step n, the boundary values should be given in the order corresponding 
             to the boundary nodes in `femspace.boundary_nodes`.
-        h : Callable
-            Initial condition function. Should be defined as h(x) for 1D or h(x, y) for 2D problems.
+        h : Callable | np.ndarray
+            Initial condition function or array. Should be defined as h(x) for 1D or h(x, y) for 2D problems, or 
+            as a numpy array of shape (nnodes,) containing the initial values at each node.
         """
         self.femspace = femspace
         self.t0 = t0
@@ -68,10 +69,10 @@ class HeatProblem:
         # Evaluate the initial condition at the FEM nodes
         if self.dim == 1:
             self.load_vector = lambda t: self.assembler.global_load_vector(lambda x: self.f(x, t))
-            self.icond = self.h(self.verts) # shape (n_vertices,)
+            self.icond = self.h(self.verts) if isinstance(self.h, Callable) else self.h # shape (nnodes,)
         elif self.dim == 2:
             self.load_vector = lambda t: self.assembler.global_load_vector(lambda x, y: self.f(x, y, t))
-            self.icond = self.h(self.verts[:,0], self.verts[:,1]) # shape (n_vertices,)
+            self.icond = self.h(self.verts[:,0], self.verts[:,1]) if isinstance(self.h, Callable) else self.h # shape (nnodes,)
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}") 
 

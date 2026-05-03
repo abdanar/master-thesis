@@ -100,6 +100,107 @@ def plot_contour(X, Y, Z, ax = None, levels = None, cline: bool = False,
 
     return fig, ax
 
+def plot_trisurf(x, y, z, ax = None, 
+                wire: bool = False, elev: float = 20, azim: float = 225,
+                xlabel: str = "", ylabel: str = "", zlabel: str = "", title: str = "",
+                xlim: Optional[tuple] = None, ylim: Optional[tuple] = None, zlim: Optional[tuple] = None,
+                logscale: bool = False, cmap = 'parula', wirewidth = 0.3, **kwargs):
+    """
+    Plot a 3D triangular surface or wireframe plot.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        1D array of x-coordinates.
+    y : np.ndarray
+        1D array of y-coordinates.
+    z : np.ndarray
+        2D array of z-coordinates corresponding to x and y.
+    ax : matplotlib.axes._subplots.Axes3DSubplot, optional
+        An existing 3D axis to plot on. If None, a new figure and axis will be created (default: None).
+    wire : bool, default False
+        Whether to plot the wireframe edges of the surface. If wire is True, only the wireframe will be plotted.
+    elev : float, default 20
+        Elevation angle in the z plane for the 3D plot.
+    azim : float, default 225
+        Azimuth angle in the x,y plane for the 3D plot.
+    xlabel : str, default ""
+        Label for the x-axis.
+    ylabel : str, default ""
+        Label for the y-axis.
+    zlabel : str, default ""
+        Label for the z-axis.
+    title : str, default ""
+        Title of the plot.
+    xlim : tuple, optional
+        Limits for the x-axis as (xmin, xmax). If None, limits are determined automatically.
+    ylim : tuple, optional
+        Limits for the y-axis as (ymin, ymax). If None, limits are determined automatically.
+    zlim : tuple, optional
+        Limits for the z-axis as (zmin, zmax). If None, limits are determined automatically.
+    logscale : bool, default False
+        Whether to use a logarithmic scale for the color mapping of the wireframe.
+    cmap : colormap, default 'parula'
+        Colormap to use for coloring the surface or wireframe.
+        Note that parula is not a built-in colormap in matplotlib, so it is defined in the
+        visualization.parula module. You can replace it with any other colormap available 
+        in matplotlib (e.g., 'viridis', 'plasma', 'inferno', etc.) or a custom colormap.
+    wirewidth : float, default 0.3
+        Line width for the wireframe edges.
+    **kwargs : dict
+        Additional keyword arguments are passed to the .Figure constructor.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax : matplotlib.axes._subplots.Axes3DSubplot
+        The 3D axis object containing the plot.
+    """
+    # Use existing axis or create new one
+    if ax is None:
+        fig = plt.figure(**kwargs)
+        ax = fig.add_subplot(projection='3d')
+    else:
+        fig = ax.figure  # reuse existing figure
+    
+    # Plot the triangular surface or wireframe
+    cmap = parula() if cmap == 'parula' else cmap
+    z = np.abs(z) + 1e-12 if logscale else z
+    norm = colors.LogNorm() if logscale else None
+    if wire:
+        surf = ax.plot_trisurf(x, y, z, cmap = colors.ListedColormap(['white']), norm=norm, linewidth = wirewidth)
+        m = cm.ScalarMappable(norm = surf.norm, cmap = cmap) 
+        surf.set_edgecolors(m.to_rgba(surf.get_array()))
+    else:
+        surf = ax.plot_trisurf(x, y, z, cmap = cmap, norm = norm)
+    
+    # Set the background pane colors to transparent
+    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+
+    # Set the background grid line widths
+    ax.xaxis._axinfo["grid"]['linewidth'] = 0.3
+    ax.yaxis._axinfo["grid"]['linewidth'] = 0.3
+    ax.zaxis._axinfo["grid"]['linewidth'] = 0.3
+    
+    # Set axis labels and title for the plot.
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_zlabel(zlabel)
+    ax.set_title(title)
+
+    # Set axis limits if provided, otherwise they will be determined automatically by matplotlib
+    ax.set_xlim(xlim) if xlim is not None else None
+    ax.set_ylim(ylim) if ylim is not None else None
+    ax.set_zlim(zlim) if zlim is not None else None
+
+    # Set the viewing angle for the 3D plot using elevation and azimuth parameters to provide a better perspective of the data
+    ax.view_init(elev=elev, azim=azim)
+
+    return fig, ax
+
 def plot_wireframe(X, Y, Z, ax = None,
                    elev: float = 20, azim: float = 225,
                    xlabel: str = "", ylabel: str = "", zlabel: str = "", title: str = "",

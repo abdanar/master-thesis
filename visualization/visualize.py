@@ -25,13 +25,86 @@ try:
             \usepackage{amssymb}
         """})
 except:
-    print("LaTeX not available, falling back to default matplotlib rendering.")
+    logger.debug("LaTeX not available, falling back to default matplotlib rendering.")
+
+def plot_contour(X, Y, Z, ax = None, levels = None, cline: bool = False,
+                xlabel: str = "", ylabel: str = "", title: str = "",
+                xlim: Optional[tuple] = None, ylim: Optional[tuple] = None,
+                logscale: bool = False, fig_kwargs = None, plot_kwargs = None):
+    """
+    Plot 2D filled contour plot. 
+
+    Parameters
+    ----------
+    X : np.ndarray
+        The x-coordinates of the data points.
+    Y : np.ndarray
+        The y-coordinates of the data points.
+    Z : np.ndarray
+        The height values corresponding to each (x, y) point, which will be represented as contour levels in the plot.
+    ax : matplotlib.axes.Axes, optional
+        The axes on which to plot. If None, a new figure and axes are created.
+    levels : int or array-like
+        The number of contour levels or the specific levels to plot.
+    cline : bool, optional
+        Whether to draw contour lines on top of the filled contours.
+    xlabel : str, optional
+        The label for the x-axis.
+    ylabel : str, optional
+        The label for the y-axis.
+    title : str, optional
+        The title of the plot.
+    xlim : tuple, optional
+        The limits for the x-axis.
+    ylim : tuple, optional
+        The limits for the y-axis.
+    logscale : bool, optional
+        Whether to use a logarithmic scale for the color mapping of the contour levels. 
+        If True, a logarithmic normalization is applied to the Z values for coloring the contours.
+    fig_kwargs : dict, optional
+        Additional keyword arguments for the figure.
+    plot_kwargs : dict, optional
+        Additional keyword arguments for the filled contour plot.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax : matplotlib.axes.Axes
+        The axes object containing the plot.
+    """
+    # Use existing axis or create new one
+    if ax is None:
+        fig, ax = plt.subplots(**(fig_kwargs if fig_kwargs else {}))
+    else:
+        fig = ax.figure  # reuse existing figure
+
+    # Add a small constant to Z to avoid issues with logarithmic scaling when Z contains zero or negative values
+    Z = np.abs(Z) + 1e-12 if logscale else Z
+
+    # Plot the filled contour, and if logscale is True, use a logarithmic normalization for the color mapping
+    contour = ax.contourf(X, Y, Z, levels = levels, norm = colors.LogNorm() if logscale else None, **(plot_kwargs if plot_kwargs else {}))
+    ax.contour(X, Y, Z, levels = levels, colors = 'k', linewidths = 0.5) if cline else None
+
+    # Set axis labels and title for the plot
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+
+    # Set axis limits if provided, otherwise they will be determined automatically by matplotlib
+    ax.set_xlim(xlim) if xlim is not None else None
+    ax.set_ylim(ylim) if ylim is not None else None
+
+    # Add a color bar to the plot to indicate the mapping of contour colors to Z values
+    fig.colorbar(contour, ax = ax)
+
+    return fig, ax
 
 def plot_wireframe(X, Y, Z, ax = None,
                    elev: float = 20, azim: float = 225,
                    xlabel: str = "", ylabel: str = "", zlabel: str = "", title: str = "",
                    xlim: Optional[tuple] = None, ylim: Optional[tuple] = None, zlim: Optional[tuple] = None,
-                   cmap = 'parula', wirewidth = 0.3, **kwargs):
+                   logscale: bool = False, cmap = 'parula', wirewidth = 0.3, **kwargs):
     """
     Plot a 3D wireframe.
 
@@ -63,6 +136,8 @@ def plot_wireframe(X, Y, Z, ax = None,
         Limits for the y-axis as (ymin, ymax). If None, limits are determined automatically.
     zlim : tuple, optional
         Limits for the z-axis as (zmin, zmax). If None, limits are determined automatically.
+    logscale : bool, default False
+        Whether to use a logarithmic scale for the color mapping of the wireframe.
     cmap : colormap, default 'parula'
         Colormap to use for coloring the wireframe.
         Note that parula is not a built-in colormap in matplotlib, so it is defined in the
@@ -92,7 +167,9 @@ def plot_wireframe(X, Y, Z, ax = None,
     
     # Create a 3D wireframe plot using the provided X, Y, Z data
     cmap = parula() if cmap == 'parula' else cmap
-    surf = ax.plot_surface(X, Y, Z, rstride = 1, cstride = 1, shade = False, cmap = colors.ListedColormap(['white']), linewidth = wirewidth)
+    Z = np.abs(Z) + 1e-12 if logscale else Z
+    norm = colors.LogNorm() if logscale else None
+    surf = ax.plot_surface(X, Y, Z, rstride = 1, cstride = 1, shade = False, cmap = colors.ListedColormap(['white']), norm=norm, linewidth = wirewidth)
     m = cm.ScalarMappable(norm = surf.norm, cmap = cmap) 
     surf.set_edgecolors(m.to_rgba(surf.get_array()))
     
@@ -125,8 +202,7 @@ def plot_wireframe(X, Y, Z, ax = None,
 def plot(x, y, ax = None,
         xlabel: str = "", ylabel: str = "", title: str = "",
         xlim: Optional[tuple] = None, ylim: Optional[tuple] = None, xticks = None,
-        logscale: bool = True, grid: bool = True, fig_kwargs = None, plot_kwargs = None):
-
+        logscale: bool = False, grid: bool = True, fig_kwargs = None, plot_kwargs = None):
     """
     Plot a 2D line plot.
 
@@ -172,9 +248,11 @@ def plot(x, y, ax = None,
     else:
         fig = ax.figure  # reuse existing figure
 
+    # Apply logarithmic scaling to the y-axis data if logscale is True, otherwise use the original y values
+    y = np.abs(y) + 1e-12 if logscale else y
+
     # Plot the data using a logarithmic scale for the y-axis if logscale is True, otherwise use a linear scale
     ax.plot(x, y, **(plot_kwargs if plot_kwargs else {}))
-    ax.set_yscale("log") if logscale else None
 
     # Set 2D grid lines
     ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7) if grid else None

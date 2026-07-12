@@ -1,15 +1,16 @@
-from typing import Optional, Literal
+from typing import Literal, Optional
+import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 import numpy as np
-from matplotlib.widgets import Slider
-from fem.mesh import Mesh
-from fem.femspace import FEMSpace
-from matplotlib.colors import Normalize
 from matplotlib import cm
-import matplotlib.colors as colors
-from visualization.parula import parula
+from matplotlib.colors import Normalize
+from matplotlib.widgets import Slider
+from fem.femspace import FEMSpace
+from fem.mesh import Mesh
 from utils.logger import get_logger
+from visualization.parula import parula
+
 logger = get_logger(__name__)
 
 # Configure matplotlib to use LaTeX for rendering text with support for mathematical symbols and equations, 
@@ -23,11 +24,140 @@ try:
             \usepackage{amsmath}
             \usepackage{amsfonts}
             \usepackage{amssymb}
-        """})
+        """,
+
+        # thesis figure sizing
+        "font.size": 11,
+        "axes.labelsize": 12,
+        "axes.titlesize": 13,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+    })        
 except:
     logger.debug("LaTeX not available, falling back to default matplotlib rendering.")
 
-def plot_contour(X, Y, Z, ax = None, levels = None, cline: bool = False,
+def plot_tri(x, y, z, ax = None, 
+            wireframe: bool = False, wirewidth = 0.3, 
+            contour: bool = False, levels = None, cline: bool = False, cbar: bool = True,
+            xlabel: str = "", ylabel: str = "", zlabel: str = "", title: str = "",
+            xlim: Optional[tuple] = None, ylim: Optional[tuple] = None, zlim: Optional[tuple] = None,
+            logscale: bool = False, cmap = 'parula', elev: float = 20, azim: float = 225, 
+            fig_kwargs = None, plot_kwargs = None):
+    """
+    Plot a 3D triangular surface, wireframe plot or 2D filled contour plot.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        1D array of x-coordinates of the vertices of the triangular mesh.
+    y : np.ndarray
+        1D array of y-coordinates of the vertices of the triangular mesh.
+    z : np.ndarray
+        1D array of z-coordinates (or values) corresponding to each vertex defined by x and y.
+    ax : matplotlib.axes._subplots.Axes3DSubplot, optional
+        An existing 3D axis to plot on. If None, a new figure and axis will be created (default: None).
+    wireframe : bool, default False
+        Whether to plot the wireframe edges of the surface. If wireframe is True, only the wireframe will be plotted.
+    wirewidth : float, default 0.3
+        Line width for the wireframe edges.
+    contour : bool, default False
+        Whether to plot filled contours on the surface. If contour is True, only filled contours will be plotted.
+    levels : int or array-like
+        The number of contour levels or the specific levels to plot for the filled contour plot.
+    cline : bool, default False
+        Whether to draw contour lines on top of the filled contours when contour is True.
+    cbar : bool, default True
+        Whether to display a colorbar for the plot.
+    xlabel : str, default ""
+        Label for the x-axis.
+    ylabel : str, default ""
+        Label for the y-axis.
+    zlabel : str, default ""
+        Label for the z-axis.
+    title : str, default ""
+        Title of the plot.
+    xlim : tuple, optional
+        Limits for the x-axis as (xmin, xmax). If None, limits are determined automatically.
+    ylim : tuple, optional
+        Limits for the y-axis as (ymin, ymax). If None, limits are determined automatically.
+    zlim : tuple, optional
+        Limits for the z-axis as (zmin, zmax). If None, limits are determined automatically.
+    logscale : bool, default False
+        Whether to use a logarithmic scale for the color mapping of the wireframe.
+    cmap : colormap, default 'parula'
+        Colormap to use for coloring the surface or wireframe.
+        Note that parula is not a built-in colormap in matplotlib, so it is defined in the
+        visualization.parula module. You can replace it with any other colormap available 
+        in matplotlib (e.g., 'viridis', 'plasma', 'inferno', etc.) or a custom colormap.
+    elev : float, default 20
+        Elevation angle in the z plane for the 3D plot.
+    azim : float, default 225
+        Azimuth angle in the x,y plane for the 3D plot.
+    fig_kwargs : dict, optional
+        Additional keyword arguments for the figure.
+    plot_kwargs : dict, optional
+        Additional keyword arguments for the surface, wireframe, or filled contour plot.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax : matplotlib.axes._subplots.Axes3DSubplot
+        The 3D axis object containing the plot.
+    """
+    assert not (wireframe and contour), "Cannot plot both wireframe and filled contour at the same time. Please choose either wireframe or contour."
+    # Use existing axis or create new one
+    if ax is None:
+        fig = plt.figure(**(fig_kwargs if fig_kwargs is not None else {}))
+        ax = fig.add_subplot(projection='3d' if not contour else None)
+    else:
+        fig = ax.figure  # reuse existing figure
+    
+    # Plot the triangular surface, wireframe, or filled contour based on the provided parameters.
+    cmap = parula() if cmap == 'parula' else cmap
+    z = np.abs(z) + 1e-12 if logscale else z
+    norm = colors.LogNorm() if logscale else None
+    if wireframe:
+        surf = ax.plot_trisurf(x, y, z, cmap = colors.ListedColormap(['white']), norm=norm, linewidth = wirewidth, shade = False, **(plot_kwargs if plot_kwargs else {}))
+        m = cm.ScalarMappable(norm = surf.norm, cmap = cmap) 
+        surf.set_edgecolors(m.to_rgba(surf.get_array()))
+    elif contour:
+        surf = ax.tricontourf(x, y, z, levels = levels, cmap = cmap, norm = norm, **(plot_kwargs if plot_kwargs else {}))
+        ax.tricontour(x, y, z, levels = levels, colors = 'k', linewidths = 0.5) if cline else None
+    else:
+        surf = ax.plot_trisurf(x, y, z, cmap = cmap, norm = norm, **(plot_kwargs if plot_kwargs else {}))
+        
+    # Set axis labels and title for the plot.
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+
+    # Set axis limits if provided, otherwise they will be determined automatically by matplotlib
+    ax.set_xlim(xlim) if xlim is not None else None
+    ax.set_ylim(ylim) if ylim is not None else None
+
+    if not contour:
+        # Set the background pane colors to transparent
+        ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+        ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+        ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+
+        # Set the background grid line widths
+        ax.xaxis._axinfo["grid"]['linewidth'] = 0.3
+        ax.yaxis._axinfo["grid"]['linewidth'] = 0.3
+        ax.zaxis._axinfo["grid"]['linewidth'] = 0.3
+
+        ax.set_zlabel(zlabel, rotation = 90)
+        ax.zaxis.set_rotate_label(False)
+        ax.set_zlim(zlim) if zlim is not None else None    
+        ax.view_init(elev=elev, azim=azim)
+    else:
+        fig.colorbar(surf, ax = ax) if cbar else None
+    
+    return fig, ax
+
+def plot_contour(X, Y, Z, ax = None, levels = None, cline: bool = False, cbar: bool = True,
                 xlabel: str = "", ylabel: str = "", title: str = "",
                 xlim: Optional[tuple] = None, ylim: Optional[tuple] = None,
                 logscale: bool = False, fig_kwargs = None, plot_kwargs = None):
@@ -48,6 +178,8 @@ def plot_contour(X, Y, Z, ax = None, levels = None, cline: bool = False,
         The number of contour levels or the specific levels to plot.
     cline : bool, optional
         Whether to draw contour lines on top of the filled contours.
+    cbar : bool, optional
+        Whether to display a colorbar for the plot.
     xlabel : str, optional
         The label for the x-axis.
     ylabel : str, optional
@@ -96,108 +228,7 @@ def plot_contour(X, Y, Z, ax = None, levels = None, cline: bool = False,
     ax.set_ylim(ylim) if ylim is not None else None
 
     # Add a color bar to the plot to indicate the mapping of contour colors to Z values
-    fig.colorbar(contour, ax = ax)
-
-    return fig, ax
-
-def plot_trisurf(x, y, z, ax = None, 
-                wire: bool = False, elev: float = 20, azim: float = 225,
-                xlabel: str = "", ylabel: str = "", zlabel: str = "", title: str = "",
-                xlim: Optional[tuple] = None, ylim: Optional[tuple] = None, zlim: Optional[tuple] = None,
-                logscale: bool = False, cmap = 'parula', wirewidth = 0.3, **kwargs):
-    """
-    Plot a 3D triangular surface or wireframe plot.
-
-    Parameters
-    ----------
-    x : np.ndarray
-        1D array of x-coordinates.
-    y : np.ndarray
-        1D array of y-coordinates.
-    z : np.ndarray
-        2D array of z-coordinates corresponding to x and y.
-    ax : matplotlib.axes._subplots.Axes3DSubplot, optional
-        An existing 3D axis to plot on. If None, a new figure and axis will be created (default: None).
-    wire : bool, default False
-        Whether to plot the wireframe edges of the surface. If wire is True, only the wireframe will be plotted.
-    elev : float, default 20
-        Elevation angle in the z plane for the 3D plot.
-    azim : float, default 225
-        Azimuth angle in the x,y plane for the 3D plot.
-    xlabel : str, default ""
-        Label for the x-axis.
-    ylabel : str, default ""
-        Label for the y-axis.
-    zlabel : str, default ""
-        Label for the z-axis.
-    title : str, default ""
-        Title of the plot.
-    xlim : tuple, optional
-        Limits for the x-axis as (xmin, xmax). If None, limits are determined automatically.
-    ylim : tuple, optional
-        Limits for the y-axis as (ymin, ymax). If None, limits are determined automatically.
-    zlim : tuple, optional
-        Limits for the z-axis as (zmin, zmax). If None, limits are determined automatically.
-    logscale : bool, default False
-        Whether to use a logarithmic scale for the color mapping of the wireframe.
-    cmap : colormap, default 'parula'
-        Colormap to use for coloring the surface or wireframe.
-        Note that parula is not a built-in colormap in matplotlib, so it is defined in the
-        visualization.parula module. You can replace it with any other colormap available 
-        in matplotlib (e.g., 'viridis', 'plasma', 'inferno', etc.) or a custom colormap.
-    wirewidth : float, default 0.3
-        Line width for the wireframe edges.
-    **kwargs : dict
-        Additional keyword arguments are passed to the .Figure constructor.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure object containing the plot.
-    ax : matplotlib.axes._subplots.Axes3DSubplot
-        The 3D axis object containing the plot.
-    """
-    # Use existing axis or create new one
-    if ax is None:
-        fig = plt.figure(**kwargs)
-        ax = fig.add_subplot(projection='3d')
-    else:
-        fig = ax.figure  # reuse existing figure
-    
-    # Plot the triangular surface or wireframe
-    cmap = parula() if cmap == 'parula' else cmap
-    z = np.abs(z) + 1e-12 if logscale else z
-    norm = colors.LogNorm() if logscale else None
-    if wire:
-        surf = ax.plot_trisurf(x, y, z, cmap = colors.ListedColormap(['white']), norm=norm, linewidth = wirewidth)
-        m = cm.ScalarMappable(norm = surf.norm, cmap = cmap) 
-        surf.set_edgecolors(m.to_rgba(surf.get_array()))
-    else:
-        surf = ax.plot_trisurf(x, y, z, cmap = cmap, norm = norm)
-    
-    # Set the background pane colors to transparent
-    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-
-    # Set the background grid line widths
-    ax.xaxis._axinfo["grid"]['linewidth'] = 0.3
-    ax.yaxis._axinfo["grid"]['linewidth'] = 0.3
-    ax.zaxis._axinfo["grid"]['linewidth'] = 0.3
-    
-    # Set axis labels and title for the plot.
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_zlabel(zlabel)
-    ax.set_title(title)
-
-    # Set axis limits if provided, otherwise they will be determined automatically by matplotlib
-    ax.set_xlim(xlim) if xlim is not None else None
-    ax.set_ylim(ylim) if ylim is not None else None
-    ax.set_zlim(zlim) if zlim is not None else None
-
-    # Set the viewing angle for the 3D plot using elevation and azimuth parameters to provide a better perspective of the data
-    ax.view_init(elev=elev, azim=azim)
+    fig.colorbar(contour, ax = ax) if cbar else None
 
     return fig, ax
 
@@ -287,7 +318,8 @@ def plot_wireframe(X, Y, Z, ax = None,
     # Set axis labels and title for the plot.
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    ax.set_zlabel(zlabel)
+    ax.set_zlabel(zlabel, rotation = 90)
+    ax.zaxis.set_rotate_label(False)
     ax.set_title(title)
 
     # Set axis limits if provided, otherwise they will be determined automatically by matplotlib
@@ -297,6 +329,9 @@ def plot_wireframe(X, Y, Z, ax = None,
 
     # Set the viewing angle for the 3D plot using elevation and azimuth parameters to provide a better perspective of the data
     ax.view_init(elev=elev, azim=azim)
+
+    # Adjust the layout of the figure
+    fig.tight_layout()
 
     return fig, ax
 
@@ -349,9 +384,6 @@ def plot(x, y, ax = None,
     else:
         fig = ax.figure  # reuse existing figure
 
-    # Apply logarithmic scaling to the y-axis data if logscale is True, otherwise use the original y values
-    y = np.abs(y) + 1e-12 if logscale else y
-
     # Plot the data using a logarithmic scale for the y-axis if logscale is True, otherwise use a linear scale
     ax.plot(x, y, **(plot_kwargs if plot_kwargs else {}))
 
@@ -367,14 +399,19 @@ def plot(x, y, ax = None,
     ax.set_xlim(xlim) if xlim is not None else None
     ax.set_ylim(ylim) if ylim is not None else None
 
+    # Set y-axis to logarithmic scale if logscale is True, which is useful for visualizing data that spans several orders of magnitude
+    ax.set_yscale('log') if logscale else None
+
     # Set x-axis ticks if provided, otherwise they will be determined automatically by matplotlib
     ax.set_xticks(xticks) if xticks is not None else None
 
     # Set tick parameters to have ticks pointing inward and enable ticks on the top and right sides of the plot
     ax.tick_params(direction='in', which='both', top=True, right=True)
 
-    return fig, ax
+    # Adjust the layout of the figure to prevent overlap of elements and ensure a clean presentation
+    fig.tight_layout()
 
+    return fig, ax
 
 class MeshVisualizer:
     def __init__(self, mesh: Mesh):
@@ -410,27 +447,42 @@ class MeshVisualizer:
     def _vertex_markers(self, mesh: Mesh, ax, color = 'black', size = 15):
         ax.scatter(mesh.vertices[:, 0], mesh.vertices[:, 1], s = size, c = color)
 
-    def plot_mesh(self, carray: Optional[np.ndarray] = None, figsize: tuple = (6, 6), dpi: int = 150, 
-                show_vertex_markers: bool = True, show_node_numbers: bool = True, show_element_numbers: bool = True,
-                show_color_bar: bool = False, axis_off: bool = True, cbar_fraction: float = 0.05, cbar_pad: float = 0.05,
-                save_path: Optional[str] = None, **kwargs):
+    def plot_mesh(self, carray: Optional[np.ndarray] = None, figsize: tuple = (6, 6), dpi: int = 150,
+                title: str = "", xlabel: str = "", ylabel: str = "", facecolors: Optional[np.ndarray] = None,
+                edgecolor = 'k', linewidth = 0.5, show_vertex_markers: bool = False, show_node_numbers: bool = False, 
+                show_element_numbers: bool = False, show_color_bar: bool = False, axis_off: bool = True, 
+                cbar_fraction: float = 0.05, cbar_pad: float = 0.05, **kwargs):
         """
-        Visualize the mesh with optional coloring and annotations.
+        Plot the triangular mesh with optional coloring and annotations for vertices and elements.
 
         Parameters
         ----------
         carray : np.ndarray, optional
-            An array of shape (ntriangles,) to color the triangles. If None, no coloring is applied (default: None).
+            An array of shape (ntriangles,) to color the triangles.
+            If None, no coloring is applied (default: None).
         figsize : tuple, optional
             Figure size in inches (width, height) (default: (6, 6)).
         dpi : int, optional
             Resolution of the figure in dots per inch (default: 150).
+        title : str, optional
+            Title of the plot (default: "").
+        xlabel : str, optional
+            Label for the x-axis (default: "").
+        ylabel : str, optional
+            Label for the y-axis (default: "").
+        facecolors : np.ndarray, optional
+            An array of shape (ntriangles, 4) representing RGBA colors for 
+            the triangles. If provided, it overrides carray for coloring (default: None).
+        edgecolor : str, optional
+            Color for the edges of the triangles (default: 'k' for black).
+        linewidth : float, optional
+            Line width for the edges of the triangles (default: 0.5).
         show_vertex_markers : bool, optional
-            If True, plot the vertices as markers (default: True).
+            If True, plot the vertices as markers (default: False).
         show_node_numbers : bool, optional
-            If True, annotate the vertices with their numbers (default: True).
+            If True, annotate the vertices with their numbers (default: False).
         show_element_numbers : bool, optional
-            If True, annotate the elements with their numbers (default: True).
+            If True, annotate the elements with their numbers (default: False).
         show_color_bar : bool, optional
             If True, display a color bar when coloring is applied (default: False).
         axis_off : bool, optional
@@ -439,47 +491,86 @@ class MeshVisualizer:
             Fraction of the original axes to use for the colorbar (default: 0.05).
         cbar_pad : float, optional
             Padding between the axes and colorbar (default: 0.05).
-        save_path : str, optional
-            If provided, save the figure to the specified path (default: None).
         **kwargs : dict, optional
             Additional keyword arguments to pass to the plotting functions.
+        
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes.Axes
+            The axes object containing the plot.
         """
+        import matplotlib.colors as mcolors
+        import colorcet as cc
+
+        # Validate input shapes and types
+        ntri = self.mesh.elements.shape[0]
+        assert carray is None or carray.shape[0] == ntri, f"carray must have shape ({ntri},) matching the number of triangles in the mesh"
+        if facecolors is not None:
+            facecolors = np.asarray(facecolors)
+            assert facecolors.shape == (ntri, 4), f"facecolors must have shape ({ntri}, 4) representing RGBA colors for each triangle"
+        
+        # Determine face colors for the triangles based on carray or facecolors input
+        fc = None
+        if carray is not None:
+            if facecolors is not None:
+                # user already provided RGBA → ignore labels
+                fc = facecolors
+            else:
+                # convert labels → RGBA using glasbey
+                palette = np.array([mcolors.to_rgba(c) for c in cc.glasbey])
+                fc = palette[carray]
+
+        # Create a figure and axis for plotting the mesh. If carray is provided, use it to color the triangles; otherwise, plot the mesh without coloring.
         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        triangulation = mtri.Triangulation(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], self.mesh.elements)
         if carray is None:
-            ax.triplot(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], self.mesh.elements, color='k', linewidth=0.5, **kwargs)
+            ax.triplot(triangulation, color = edgecolor, linewidth = linewidth, **kwargs)
             tpc = None
-        else:
-            tpc = ax.tripcolor(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], self.mesh.elements, facecolors = carray, edgecolors = 'k', **kwargs)
+        else:        
+            import matplotlib.collections as mcoll
+            pc = mcoll.PolyCollection(self.mesh.vertices[self.mesh.elements], facecolors=fc, edgecolors=edgecolor, linewidths=linewidth, **kwargs)
+            ax.add_collection(pc)
+            tpc = pc
+        
+        # Annotattions
         if show_node_numbers:
             self._vertex_numbers(self.mesh, ax)
         if show_element_numbers:
             self._triangle_numbers(self.mesh, ax)
         if show_vertex_markers:
             self._vertex_markers(self.mesh, ax)
+
+        # Add a color bar to the plot if coloring is applied (change this to a discrete color bar if carray contains categorical labels)
         if tpc is not None and show_color_bar:
-            cbar = fig.colorbar(tpc, ax=ax, fraction = cbar_fraction, pad = cbar_pad)
+            norm = mcolors.Normalize(vmin=np.min(carray), vmax=np.max(carray))
+            sm = cm.ScalarMappable(norm=norm)
+            sm.set_array([])
+            fig.colorbar(sm, ax=ax, fraction=cbar_fraction, pad=cbar_pad)
+        
+        # Add style elements to the plot
         if axis_off:
             ax.axis('off')
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
         ax.set_aspect('equal')
-        fig.tight_layout()
-        if save_path is not None:
-            import os
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            fig.savefig(save_path, bbox_inches='tight', dpi=dpi)
-        plt.show()
+
+        return fig, ax
 
     def plot_subdomains(self, subdomains: dict[int, Mesh], membership: Optional[np.ndarray] = None, 
                         figsize: tuple = (6, 6), dpi: int = 150, cmap: str = "Set3", 
-                        ncols: int = 3, include_global_mesh: bool = True, show_vertex_markers: bool = True, 
-                        show_node_numbers: bool = True, show_element_numbers: bool = True,
-                        axis_off = True, save_path: Optional[str] = None):
+                        ncols: int = 3, nrows: int = 1, include_global_mesh: bool = True, show_vertex_markers: bool = False, 
+                        show_node_numbers: bool = False, show_element_numbers: bool = False,
+                        axis_off = True):
         """
         Visualize the subdomain decomposition of the mesh supporting both non-overlapping and 
         overlapping subdomains. Optionally include the global mesh with subdomains colored by membership.
 
         This function creates a subplot for each subdomain and optionally the global mesh. The global mesh is colored 
         according to the membership array of non-overlapping subdomains, while the subdomains are outlined with their 
-        own triangles. Node and element numbers can be annotated for clarity. The figure can be saved to a specified path.
+        own triangles. Node and element numbers can be annotated for clarity.
 
         Parameters
         ----------
@@ -496,23 +587,28 @@ class MeshVisualizer:
             Colormap used for coloring the global mesh by subdomain membership (default: "Set3").
         ncols : int, optional
             Number of columns in the subplot grid (default: 3).
+        nrows : int, optional
+            Number of rows in the subplot grid (default: 1).
         include_global_mesh : bool, optional
             If True, include a subplot of the global mesh colored by subdomain membership (default: True).
         show_vertex_markers : bool, optional
-            If True, plot the vertices as markers on all subplots (default: True).
+            If True, plot the vertices as markers on all subplots (default: False).
         show_node_numbers : bool, optional
-            If True, annotate the vertices with their numbers (default: True).
+            If True, annotate the vertices with their numbers (default: False).
         show_element_numbers : bool, optional
-            If True, annotate the triangles with their numbers (default: True).
+            If True, annotate the triangles with their numbers (default: False).
         axis_off : bool, optional
             If True, turn off the axis for all subplots (default: True).
-        save_path : str, optional
-            If provided, saves the figure to the given path (e.g., "subdomains.png" or "subdomains.pdf"). 
-            If None, the figure is not saved (default: None).
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object containing the subplots.
+        axes : np.ndarray
+            An array of axes objects for each subplot.
         """
         nsub = len(subdomains)
         nplots = nsub + 1 if include_global_mesh else nsub
-        nrows = (nplots + ncols - 1) // ncols
         fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize, dpi=dpi)
         axes = axes.flatten()
         if include_global_mesh:
@@ -536,12 +632,7 @@ class MeshVisualizer:
             ax.axis('off') if axis_off else None
             ax.set_title(f"Subdomain {domainid}")
             ax.set_aspect('equal')
-        plt.tight_layout()
-        if save_path is not None:
-            import os
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            plt.savefig(save_path, bbox_inches='tight', dpi=dpi)
-        plt.show()
+        return fig, axes
 
 class SolutionVisualizer:
     def __init__(self, mesh: Mesh, u: np.ndarray, dt: Optional[float] = None, femspace: Optional[FEMSpace] = None):

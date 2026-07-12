@@ -83,23 +83,23 @@ def compute_iteration_error(config: HistoryConfig, metric: MetricSpec, time_grid
         assert current_gdata is not None and prev_gdata is not None, "Global data must be provided for computing global iteration error."
         oswr_sol = current_gdata - prev_gdata
         est = ErrorNorms(femspace = gfemspace, u1 = oswr_sol, time = time_grid, mode = 'self')
-        logger.debug(f"Computing global iteration error norm using {config.norm} norm...")
+        logger.debug(f"Computing global iteration error norm using {metric.norm} norm...")
         if metric.temporal == TemporalMode.STATIC:
-            iter_error = est.compute(config.norm) # scalar
+            iter_error = est.compute(metric.norm) # scalar
         else:
-            iter_error = compute_many(est, config.norm, t_indices = config.time_indices) # type: ignore shape (len(time_indices),)
+            iter_error = compute_many(est, metric.norm, t_indices = config.time_indices) # type: ignore shape (len(t_indices),)
         values["global"] = iter_error
     if metric.spatial in [SpatialMode.SUBDOMAINS, SpatialMode.BOTH]:
         sub_errors = {}
         for domainID in config.subdomains: # type: ignore
-            logger.debug(f"Computing iteration error norm for subdomain {domainID} using {config.norm} norm...")
+            logger.debug(f"Computing iteration error norm for subdomain {domainID} using {metric.norm} norm...")
             sub_est = ErrorNorms(femspace = lfemspace[domainID], u1 = solution_diff[domainID], time = time_grid, mode = 'self')
             if metric.temporal == TemporalMode.STATIC:
-                sub_error = sub_est.compute(config.norm) # scalar
+                sub_error = sub_est.compute(metric.norm) # scalar
             else:
-                sub_error = compute_many(sub_est, config.norm, t_indices = config.time_indices) # type: ignore shape (len(time_indices),) 
+                sub_error = compute_many(sub_est, metric.norm, t_indices = config.time_indices) # type: ignore shape (len(t_indices),) 
             sub_errors[domainID] = sub_error
-        values["subdomains"] = sub_errors # dictionary of shape {domainID: scalar or shape (len(time_indices),)}
+        values["subdomains"] = sub_errors # dictionary of shape {domainID: scalar or shape (len(t_indices),)}
     return values
 
 def compute_absolute_error(config: HistoryConfig, metric: MetricSpec, time_grid: np.ndarray, ltog: dict[int, np.ndarray],
@@ -138,8 +138,8 @@ def compute_absolute_error(config: HistoryConfig, metric: MetricSpec, time_grid:
     -------
     dict[Literal["global", "subdomains"], float | np.ndarray | dict[int, float | np.ndarray]]
         A dictionary containing the computed absolute error norms. The dictionary has two possible keys:
-        - "global": The global absolute error norm(s), either a scalar or a numpy array of shape (len(time_indices),) depending on the temporal mode.
-        - "subdomains": A dictionary mapping subdomain domainIDs to their respective absolute error norms, either a scalar or a numpy array of shape (len(time_indices),) depending on the temporal mode.
+        - "global": The global absolute error norm(s), either a scalar or a numpy array of shape (len(config.time_indices),) depending on the temporal mode.
+        - "subdomains": A dictionary mapping subdomain domainIDs to their respective absolute error norms, either a scalar or a numpy array of shape (len(config.time_indices),) depending on the temporal mode.
     """
     logger.debug(f"Computing absolute error metric for iteration...")
 
@@ -148,22 +148,22 @@ def compute_absolute_error(config: HistoryConfig, metric: MetricSpec, time_grid:
 
     if metric.spatial in [SpatialMode.GLOBAL, SpatialMode.BOTH]:
         assert current_gdata is not None, "Global data must be provided for computing global absolute error."
-        logger.debug(f"Computing global absolute error norm using {config.norm} norm...")
+        logger.debug(f"Computing global absolute error norm using {metric.norm} norm...")
         est = ErrorNorms(femspace = gfemspace, u1 = current_gdata, u2 = config.uh, u_exact = config.exact, time = time_grid, mode = mode)
         if metric.temporal == TemporalMode.STATIC:
-            abs_error = est.compute(config.norm) 
+            abs_error = est.compute(metric.norm) 
         else:
-            abs_error = compute_many(est, config.norm, t_indices = config.time_indices) # type: ignore
+            abs_error = compute_many(est, metric.norm, t_indices = config.time_indices) # type: ignore
         values["global"] = abs_error # shape (ntime,) or scalar
     if metric.spatial in [SpatialMode.SUBDOMAINS, SpatialMode.BOTH]:
         sub_errors = {}
         for domainID in config.subdomains: # type: ignore
             sub_est = ErrorNorms(femspace = lfemspace[domainID], u1 = current_ldata[domainID], u2 = config.uh[ltog[domainID], :] if config.uh is not None else None, u_exact = config.exact, time = time_grid, mode = mode)
-            logger.debug(f"Computing iteration error norm for subdomain {domainID} using {config.norm} norm...")
+            logger.debug(f"Computing iteration error norm for subdomain {domainID} using {metric.norm} norm...")
             if metric.temporal == TemporalMode.STATIC:
-                sub_error = sub_est.compute(config.norm) # scalar
+                sub_error = sub_est.compute(metric.norm) # scalar
             else:
-                sub_error = compute_many(sub_est, config.norm, t_indices = config.time_indices) # type: ignore shape (len(time_indices),)
+                sub_error = compute_many(sub_est, metric.norm, t_indices = config.time_indices) # type: ignore shape (len(time_indices),)
             sub_errors[domainID] = sub_error
         values["subdomains"] = sub_errors # dictionary of shape {domainID: scalar or shape (len(time_indices),)}
     return values
@@ -217,32 +217,32 @@ def compute_relative_error(config: HistoryConfig, metric: MetricSpec, time_grid:
     if metric.spatial in [SpatialMode.GLOBAL, SpatialMode.BOTH]:
         assert current_gdata is not None, "Global data must be provided for computing global absolute error."
         est = ErrorNorms(femspace = gfemspace, u1 = current_gdata, u2 = config.uh, u_exact = config.exact, time = time_grid, mode = mode)
-        logger.debug(f"Computing global relative error norm using {config.norm} norm...")
+        logger.debug(f"Computing global relative error norm using {metric.norm} norm...")
         if metric.temporal == TemporalMode.STATIC:
-            num = est.compute(config.norm)
+            num = est.compute(metric.norm)
             ref_est = ErrorNorms(femspace = gfemspace, u1 = current_gdata, u2 = config.uh, u_exact = config.exact, time = time_grid, mode = 'self')
-            den = ref_est.compute(config.norm) + 1e-14
+            den = ref_est.compute(metric.norm) + 1e-14
             rel_error = num / den
         else:
-            num_array = compute_many(est, config.norm, t_indices = config.time_indices) # type: ignore
+            num_array = compute_many(est, metric.norm, t_indices = config.time_indices) # type: ignore
             ref_est = ErrorNorms(femspace = gfemspace, u1 = current_gdata, u2 = config.uh, u_exact = config.exact, time = time_grid, mode = 'self')
-            den_array = compute_many(ref_est, config.norm, t_indices = config.time_indices) + 1e-14 # type: ignore
+            den_array = compute_many(ref_est, metric.norm, t_indices = config.time_indices) + 1e-14 # type: ignore
             rel_error = num_array / den_array
         values["global"] = rel_error # shape (ntime,) or scalar
     if metric.spatial in [SpatialMode.SUBDOMAINS, SpatialMode.BOTH]:
         sub_errors = {}
         for domainID in config.subdomains: # type: ignore
             sub_est = ErrorNorms(femspace = lfemspace[domainID], u1 = current_ldata[domainID], u2 = config.uh[ltog[domainID], :] if config.uh is not None else None, u_exact = config.exact, time = time_grid, mode = 'auto')
-            logger.debug(f"Computing relative error norm for subdomain {domainID} using {config.norm} norm...")
+            logger.debug(f"Computing relative error norm for subdomain {domainID} using {metric.norm} norm...")
             if metric.temporal == TemporalMode.STATIC:
-                num = sub_est.compute(config.norm)
+                num = sub_est.compute(metric.norm)
                 ref_est = ErrorNorms(femspace = lfemspace[domainID], u1 = current_ldata[domainID], u2 = config.uh[ltog[domainID], :] if config.uh is not None else None, u_exact = config.exact, time = time_grid, mode = 'self')
-                den = ref_est.compute(config.norm) + 1e-14
+                den = ref_est.compute(metric.norm) + 1e-14
                 sub_error = num / den
             else:
-                num_array = compute_many(sub_est, config.norm, t_indices = config.time_indices) # type: ignore (change below it is not correct)
+                num_array = compute_many(sub_est, metric.norm, t_indices = config.time_indices) # type: ignore (change below it is not correct)
                 ref_est = ErrorNorms(femspace = lfemspace[domainID], u1 = current_ldata[domainID], u2 = config.uh[ltog[domainID], :] if config.uh is not None else None, u_exact = config.exact, time = time_grid, mode = 'self')
-                den_array = compute_many(ref_est, config.norm, t_indices = config.time_indices) + 1e-14 # type: ignore
+                den_array = compute_many(ref_est, metric.norm, t_indices = config.time_indices) + 1e-14 # type: ignore
                 sub_error = num_array / den_array
             sub_errors[domainID] = sub_error
         values["subdomains"] = sub_errors # dictionary of shape {domainID: scalar or shape (len(time_indices),)}
@@ -303,14 +303,14 @@ def compute_convergence_rate(config: HistoryConfig, metric: MetricSpec, time_gri
         assert current_gdata is not None and prev_gdata is not None, "Global data must be provided for computing global convergence rate."
         est = ErrorNorms(femspace = gfemspace, u1 = current_gdata, u2 = config.uh, u_exact = config.exact, time = time_grid, mode = mode)
         prev_est = ErrorNorms(femspace = gfemspace, u1 = prev_gdata, u2 = config.uh, u_exact = config.exact, time = time_grid, mode = mode)
-        logger.debug(f"Computing global convergence rate using {config.norm} norm...")
+        logger.debug(f"Computing global convergence rate using {metric.norm} norm...")
         if metric.temporal == TemporalMode.STATIC:
-            num = est.compute(config.norm)
-            den = prev_est.compute(config.norm) + 1e-14
+            num = est.compute(metric.norm)
+            den = prev_est.compute(metric.norm) + 1e-14
             conv_rate = num / den
         else:
-            num_array = compute_many(est, config.norm, t_indices = config.time_indices) # type: ignore
-            den_array = compute_many(prev_est, config.norm, t_indices = config.time_indices) + 1e-14 # type: ignore
+            num_array = compute_many(est, metric.norm, t_indices = config.time_indices) # type: ignore
+            den_array = compute_many(prev_est, metric.norm, t_indices = config.time_indices) + 1e-14 # type: ignore
             conv_rate = num_array / den_array
         values["global"] = conv_rate # shape (ntime,) or scalar
     if metric.spatial in [SpatialMode.SUBDOMAINS, SpatialMode.BOTH]:
@@ -318,14 +318,14 @@ def compute_convergence_rate(config: HistoryConfig, metric: MetricSpec, time_gri
         for domainID in config.subdomains: # type: ignore
             sub_est = ErrorNorms(femspace = lfemspace[domainID], u1 = current_ldata[domainID], u2 = config.uh[ltog[domainID], :] if config.uh is not None else None, u_exact = config.exact, time = time_grid, mode = mode)
             sub_prev_est = ErrorNorms(femspace = lfemspace[domainID], u1 = prev_ldata[domainID], u2 = config.uh[ltog[domainID], :] if config.uh is not None else None, u_exact = config.exact, time = time_grid, mode = mode)
-            logger.debug(f"Computing convergence rate for subdomain {domainID} using {config.norm} norm...")
+            logger.debug(f"Computing convergence rate for subdomain {domainID} using {metric.norm} norm...")
             if metric.temporal == TemporalMode.STATIC:
-                num = sub_est.compute(config.norm)
-                den = sub_prev_est.compute(config.norm) + 1e-14
+                num = sub_est.compute(metric.norm)
+                den = sub_prev_est.compute(metric.norm) + 1e-14
                 sub_rate = num / den
             else:
-                num_array = compute_many(sub_est, config.norm, t_indices = config.time_indices) # type: ignore
-                den_array = compute_many(sub_prev_est, config.norm, t_indices = config.time_indices) + 1e-14 # type: ignore
+                num_array = compute_many(sub_est, metric.norm, t_indices = config.time_indices) # type: ignore
+                den_array = compute_many(sub_prev_est, metric.norm, t_indices = config.time_indices) + 1e-14 # type: ignore
                 sub_rate = num_array / den_array # shape (ntime,)
             sub_rates[domainID] = sub_rate
         values["subdomains"] = sub_rates  # dictionary of shape {domainID: scalar or shape (len(time_indices),)}
@@ -335,11 +335,11 @@ def compute_metrics(config: HistoryConfig, time_grid: np.ndarray, ltog: dict[int
                     gfemspace: FEMSpace, lfemspace: dict[int, FEMSpace], 
                     current_ldata: dict[int, np.ndarray], prev_ldata: dict[int, np.ndarray], 
                     current_gdata: Optional[np.ndarray] = None, prev_gdata: Optional[np.ndarray] = None, 
-                    mode: Literal['exact', 'fem'] = 'fem') -> dict[MetricType, dict[Literal["global", "subdomains"], float | np.ndarray | dict[int, float | np.ndarray]]]:
+                    mode: Literal['exact', 'fem'] = 'fem') -> dict[MetricSpec, dict[Literal["global", "subdomains"], float | np.ndarray | dict[int, float | np.ndarray]]]:
     """
     Compute all metrics specified in the `HistoryConfig` for the current Schwarz iteration. This function iterates through the list of `MetricSpec` 
     objects in the `HistoryConfig`, determines which metrics need to be computed based on their types, and calls the appropriate computation functions 
-    for each metric. The results are collected in a dictionary keyed by `MetricType`, where each value is itself a dictionary containing the computed 
+    for each metric. The results are collected in a dictionary keyed by `MetricSpec`, where each value is itself a dictionary containing the computed 
     metric values for global and/or subdomain storage as specified in the `MetricSpec`. The computed metrics can include iteration error, absolute error, 
     relative error, and convergence rate, and they can be stored in various combinations of spatial and temporal modes as defined in the `HistoryConfig`. 
     The returned dictionary provides a structured way to access all the computed metrics for the current iteration.
@@ -370,16 +370,12 @@ def compute_metrics(config: HistoryConfig, time_grid: np.ndarray, ltog: dict[int
 
     Returns
     -------
-    dict[MetricType, dict[Literal["global", "subdomains"], float | np.ndarray | dict[int, float | np.ndarray]]]
-        A dictionary where each key is a MetricType corresponding to a metric specified in the HistoryConfig, and each value is a dictionary containing 
-        the computed metric values for that MetricType. The inner dictionary provides a structured way to access all the computed metrics for the current iteration.
+    dict[MetricSpec, dict[Literal["global", "subdomains"], float | np.ndarray | dict[int, float | np.ndarray]]]
+        A dictionary where each key is a MetricSpec corresponding to a metric specified in the HistoryConfig, and each value is a dictionary containing 
+        the computed metric values for that MetricSpec. The inner dictionary provides a structured way to access all the computed metrics for the current iteration.
         For example, the returned dictionary may look like:
         {
-            MetricType.ITERATION_ERROR: {
-                "global": np.array([...]) or scalar,
-                "subdomains": {domainID: np.array([...]) or scalar, ...}
-            },
-            MetricType.ABSOLUTE_ERROR: {
+            metric_spec: {
                 "global": np.array([...]) or scalar,
                 "subdomains": {domainID: np.array([...]) or scalar, ...}
             },
@@ -390,15 +386,15 @@ def compute_metrics(config: HistoryConfig, time_grid: np.ndarray, ltog: dict[int
     results = {}
     for metric_spec in config.metrics:
         if metric_spec.name == MetricType.ITERATION_ERROR:
-            results[MetricType.ITERATION_ERROR] = compute_iteration_error(config, metric_spec, time_grid, gfemspace, lfemspace,
+            results[metric_spec] = compute_iteration_error(config, metric_spec, time_grid, gfemspace, lfemspace,
                                                                           current_ldata, prev_ldata, current_gdata, prev_gdata)
         elif metric_spec.name == MetricType.ABSOLUTE_ERROR:
-            results[MetricType.ABSOLUTE_ERROR] = compute_absolute_error(config, metric_spec, time_grid, ltog, gfemspace, lfemspace,
+            results[metric_spec] = compute_absolute_error(config, metric_spec, time_grid, ltog, gfemspace, lfemspace,
                                                                         current_ldata, current_gdata, mode)
         elif metric_spec.name == MetricType.RELATIVE_ERROR:
-            results[MetricType.RELATIVE_ERROR] = compute_relative_error(config, metric_spec, time_grid, ltog, gfemspace, lfemspace, 
+            results[metric_spec] = compute_relative_error(config, metric_spec, time_grid, ltog, gfemspace, lfemspace, 
                                                                         current_ldata, current_gdata, mode)
         elif metric_spec.name == MetricType.CONVERGENCE_RATE:
-            results[MetricType.CONVERGENCE_RATE] = compute_convergence_rate(config, metric_spec, time_grid, ltog, gfemspace, lfemspace, 
+            results[metric_spec] = compute_convergence_rate(config, metric_spec, time_grid, ltog, gfemspace, lfemspace, 
                                                                             current_ldata, prev_ldata, current_gdata, prev_gdata, mode)
     return results

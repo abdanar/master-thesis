@@ -1,5 +1,5 @@
 import sys
-from typing import Callable, Optional
+from typing import Callable, Optional, Literal
 import numpy as np
 from tqdm import trange
 from fem.linearsolver import DirectSolver, LinearSolver
@@ -68,7 +68,8 @@ class ReducedHeatProblem:
         else:
             raise ValueError("Unsupported type for boundary condition g.")
 
-    def solve_nodal(self, time_grid: np.ndarray, theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, **kwargs):
+    def solve_nodal(self, time_grid: np.ndarray, theta: float = 0.5, solver: LinearSolver = DirectSolver(), 
+                    weight: Optional[np.ndarray] = None, reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, **kwargs):
         """
         Solves the reduced heat problem using a nodal lifting approach for the boundary conditions.
 
@@ -86,6 +87,9 @@ class ReducedHeatProblem:
         solver : LinearSolver
             Linear solver to use for solving the linear system. Must be an instance of a class that 
             inherits from `LinearSolver`. Default is `DirectSolver()`.
+        weight : np.ndarray, optional
+            Weight matrix for the inner product in the reduced space. If provided, it will be used to 
+            compute the reduced initial condition. Default is None (no weighting).
         reuse_load : bool
             If True, the reduced load vectors for all time steps will be computed once and reused for subsequent calls with 
             `reuse_load=True` to this method. This can save computation time if the same reduced load vectors are needed multiple 
@@ -112,7 +116,10 @@ class ReducedHeatProblem:
         self.dirichlet_values = self.vectorize(g_to_use, time_grid) # shape (nbdnodes, ntime)
 
         # Project the initial condition onto the reduced space
-        icond_r = self.V.T @ self.hp.icond[self.interior_nodes]
+        if weight is not None:
+            icond_r = self.V.T @ weight @ self.hp.icond[self.interior_nodes]
+        else:
+            icond_r = self.V.T @ self.hp.icond[self.interior_nodes]
 
         # Pre-allocate solution array: columns are time steps
         solution = np.zeros((self.V.shape[1], ntime)) # shape (r, ntime)
@@ -168,7 +175,8 @@ class ReducedHeatProblem:
                 u_interior = u
         return solution
 
-    def solve_harmonic(self, time_grid: np.ndarray, theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, **kwargs):
+    def solve_harmonic(self, time_grid: np.ndarray, theta: float = 0.5, solver: LinearSolver = DirectSolver(), 
+                       weight: Optional[np.ndarray] = None, reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, **kwargs):
         
         # Total number of time nodes (including initial and final time)
         ntime = len(time_grid)
@@ -227,7 +235,10 @@ class ReducedHeatProblem:
         # Time-stepping loop with tqdm
         step = 0
         t = self.t0
-        u_interior = self.V.T @ (self.hp.icond[self.interior_nodes] - lift_values[:, 0]) # shape (r,)
+        if weight is not None:
+            u_interior = self.V.T @ weight @ (self.hp.icond[self.interior_nodes] - lift_values[:, 0]) # shape (r,)
+        else:
+            u_interior = self.V.T @ (self.hp.icond[self.interior_nodes] - lift_values[:, 0]) # shape (r,)
         solution[:, 0] = u_interior
         with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, disable = not sys.stdout.isatty()) as pbar:
             for step in pbar:
@@ -239,15 +250,14 @@ class ReducedHeatProblem:
                 u_interior = u
         return solution
 
-    def solve(self, time_grid: np.ndarray, lift: str = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, reconstruct: bool = True, **kwargs):
+    def solve(self, time_grid: np.ndarray, lift: Literal['nodal', 'harmonic'] = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), 
+              weight: Optional[np.ndarray] = None, reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, reconstruct: bool = True, **kwargs):
         if lift == 'nodal':
-            hom_solution_r = self.solve_nodal(time_grid = time_grid, theta = theta, solver = solver, reuse_load = reuse_load, g_new = g_new, **kwargs)
+            hom_solution_r = self.solve_nodal(time_grid = time_grid, theta = theta, solver = solver, weight = weight, reuse_load = reuse_load, g_new = g_new, **kwargs)
         elif lift == 'harmonic':
-            hom_solution_r = self.solve_harmonic(time_grid = time_grid, theta = theta, solver = solver, g_new = g_new, **kwargs)
-        # elif lift == 'parabolic':
-        #   hom_solution_r = self.solve_parabolic(ntime = ntime, theta = theta, solver = solver, g_new = g_new, **kwargs)
+            hom_solution_r = self.solve_harmonic(time_grid = time_grid, theta = theta, solver = solver, weight = weight, g_new = g_new, **kwargs)
         else:
-            raise ValueError(f"Unsupported lift method: {lift}")
+            raise ValueError(f"Unsupported lift method: {lift}. Supported options are 'nodal' and 'harmonic'.")
         if reconstruct: # Project back to full space
             return self.reconstruct(hom_solution_r, time_grid = time_grid, g_new = g_new)
         else:

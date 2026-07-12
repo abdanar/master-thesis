@@ -1,4 +1,5 @@
 import numpy as np
+from numba import njit
 from fem.femspace import FEMSpace
 from fem.quadrature import interval_quadrature, triangle_quadrature
 from typing import Callable, Optional, Literal
@@ -7,6 +8,7 @@ import inspect
 from utils.logger import get_logger
 logger = get_logger(__name__)
 
+# Define norm types for error computation
 class NormType(str, Enum):
     L2 = "l2"
     H1 = "h1"
@@ -225,7 +227,7 @@ class ErrorNorms:
             return grad_uh - grad_u
         else:  # mode == 'self'
             return grad_uh
-  
+    @njit
     def l2_error(self) -> float:
         """
         Compute the L² norm of a FEM solution or the error between two FEM solutions 
@@ -308,6 +310,27 @@ class ErrorNorms:
                 phys_point = phys_elem.reference_to_physical(node)
                 err += weight*detJ*self._diff(elem_index, phys_point, t_index)**2
         return float(np.sqrt(err))
+
+    def linf_l2_error(self) -> float:
+        """
+        Compute the L∞ error of the L² norm across time for time-dependent solutions. 
+        The L² error is computed at each time step, and the maximum value across all 
+        time steps is returned. The formula is:
+
+            max_{t ∈ (t_0, ..., t_{n})} ||u1(t) - u2(t)||_{L2}
+        or
+            max_{t ∈ (t_0, ..., t_{n})} ||u1(t) - u_exact(t)||_{L2}
+        depending on the mode. If `self.time` is not provided or has only one time point, it falls back
+        to the static L² error computation.
+        """
+        if self.time is None or self.nt == 1:
+            logger.warning("Time array is not provided or has only one time point. Falling back to static L2 error computation.")
+            return self.l2_error()  # fallback to static norm
+        logger.debug("Computing L∞ error of the L2 norm across time by taking maximum across time steps...")
+        max_err = 0.0
+        for t_index in range(self.nt):
+            max_err = max(max_err, self.l2_error_at_time(t_index))
+        return max_err
     
     def linf_error(self) -> float:
         """
@@ -336,12 +359,12 @@ class ErrorNorms:
 
     def linf_error_time(self) -> float:
         """
-        Compute the L∞ error integrated over interior(time) for time-dependent solutions. The L∞ error is computed 
+        Compute the L∞ error integrated over time for time-dependent solutions. The L∞ error is computed 
         at each time step and the maximum error across all time steps is returned. The formula is:
 
-            max_{t ∈ (t_1, ..., t_{n-1})} ||u1(t) - u2(t)||_{L∞}
+            max_{t ∈ (t_0, ..., t_{n})} ||u1(t) - u2(t)||_{L∞}
         or
-            max_{t ∈ (t_1, ..., t_{n-1})} ||u1(t) - u_exact(t)||_{L∞}
+            max_{t ∈ (t_0, ..., t_{n})} ||u1(t) - u_exact(t)||_{L∞}
 
         depending on the mode. If `time` is not provided or has only one time point, 
         it falls back to the static L∞ error computation.
@@ -351,7 +374,7 @@ class ErrorNorms:
             return self.linf_error()  # fallback to static norm
         logger.debug("Computing L∞ error integrated over time by taking maximum across time steps...")
         max_err = 0.0
-        for t_index in range(1, len(self.time) - 1):
+        for t_index in range(self.nt):
             max_err = max(max_err, self.linf_error_at_time(t_index))
         return max_err
 

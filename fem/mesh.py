@@ -1,4 +1,6 @@
+from __future__ import annotations
 import itertools as it
+from dataclasses import dataclass
 from collections import defaultdict
 import numpy as np
 import pymetis
@@ -16,7 +18,8 @@ logger = get_logger(__name__)
 #
 # For 1D meshes, elements are line segments between consecutive nodes. For 2D meshes, triangulation
 # is performed using the `Triangle` library if element connectivity is not provided.
-#
+# ------------------------------------------------------------------------------
+
 # -------------- Naming conventions for mesh attributes and methods --------------
 # `_node` -> means index
 # `_coord` -> means coordinate
@@ -119,10 +122,8 @@ class Mesh:
                 self.segment_markers = None if markers is None else markers.flatten()
             else:
                 self.elements = np.asarray(elements, dtype=int)
-                if segments is not None:
-                    self.segments = np.asarray(segments, dtype=int)
-                if segment_markers is not None:
-                    self.segment_markers = np.asarray(segment_markers, dtype=int).flatten()
+                self.segments = np.asarray(segments, dtype=int) if segments is not None else None
+                self.segment_markers = np.asarray(segment_markers, dtype=int).flatten() if segment_markers is not None else None
         else:
             raise ValueError(f"Unsupported dimension: {self.dim}. Only 1D and 2D meshes are supported.")
 
@@ -884,7 +885,7 @@ class Mesh:
                     new_subdomains[j] = elements[masks[j]]
         return new_subdomains
 
-    def decompose(self, n: int, overlap: int = 1, version: int = 1, edge_weights = None): # Element-based partitioning
+    def decompose(self, n: int, overlap: int = 1, version: int = 1, edge_weights = None) -> DecompositionInfo: # Element-based partitioning
         """
         Decompose the mesh into `n` subdomains with overlapping layers.
 
@@ -918,28 +919,32 @@ class Mesh:
 
         Returns
         -------
-        submeshes : dict[int, Mesh]
-            Dictionary of `Mesh` objects corresponding to each subdomain, keyed by subdomain ID.
-        ltog : dict[int, np.ndarray]
-            Dictionary mapping each subdomain ID to the corresponding global nodes in that subdomain.
-            To access the global index of a local node `i` in subdomain `s`, use `ltog[s][i]`.
-        gtol : dict[int, np.ndarray]
-            Dictionary mapping each subdomain ID to the corresponding local nodes in that subdomain.
-            To access the local index of a global node `g` in subdomain `s`, use `gtol[s][g]`. 
-            If a global node `g` does not belong to subdomain `s`, then `gtol[s][g]` will be -1.
-        subdomain_maps : dict
-            Dictionary mapping each subdomain ID to a dictionary of local boundary node mappings.
-            The structure for subdomain_maps[s] is as follows:
-            subdomain_maps[s] = {
-                local_boundary_index_in_s: [
-                    (0, global_index),         # if it belongs to the whole domain boundary
-                    (t, local_index_in_t),     # if it is shared with another subdomain t
+        decomposition_info : DecompositionInfo
+            A `DecompositionInfo` object containing the following attributes:
+            submeshes : dict[int, Mesh]
+                Dictionary of `Mesh` objects corresponding to each subdomain, keyed by subdomain ID.
+            ltog : dict[int, np.ndarray]
+                Dictionary mapping each subdomain ID to the corresponding global nodes in that subdomain.
+                To access the global index of a local node `i` in subdomain `s`, use `ltog[s][i]`.
+            gtol : dict[int, np.ndarray]
+                Dictionary mapping each subdomain ID to the corresponding local nodes in that subdomain.
+                To access the local index of a global node `g` in subdomain `s`, use `gtol[s][g]`. 
+                If a global node `g` does not belong to subdomain `s`, then `gtol[s][g]` will be -1.
+            subdomain_maps : dict
+                Dictionary mapping each subdomain ID to a dictionary of local boundary node mappings.
+                The structure for subdomain_maps[s] is as follows:
+                subdomain_maps[s] = {
+                    local_boundary_index_in_s: [
+                        (0, global_index),         # if it belongs to the whole domain boundary
+                        (t, local_index_in_t),     # if it is shared with another subdomain t
+                        ...
+                    ],
                     ...
-                ],
-                ...
-            }
-        membership : np.ndarray of int, shape (n_elements,)
-            Array mapping each triangle in the original mesh to its subdomain index.  
+                }
+            membership : np.ndarray of int, shape (nelements,)
+                Array mapping each triangle in the original mesh to its subdomain index. 
+            version : int
+                The version of the interface boundary definition used in the decomposition. 
 
         Examples
         --------
@@ -1086,7 +1091,7 @@ class Mesh:
             subdomain_maps[s] = maps
 
         # Note that returned `membership` array is for non-overlapping domain decomposition!
-        return submeshes, ltog, gtol, subdomain_maps, np.array(membership, dtype = int)
+        return DecompositionInfo(submeshes = submeshes, ltog = ltog, gtol = gtol, subdomain_maps = subdomain_maps, membership = np.array(membership, dtype = int), version = version)
 
     def is_in_interval(self, point: float, interval: list | np.ndarray, tol: float = 1e-12) -> bool:
         """
@@ -1363,3 +1368,27 @@ class Mesh:
             f"[bold]Measure ({'length' if self.dim == 1 else 'area'}):[/bold] {total_measure}\n"
             f"[bold]Mesh size (h):[/bold] {self.size()}"
         )
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DecompositionInfo:
+    submeshes: dict[int, Mesh]
+    ltog: dict[int, np.ndarray]
+    gtol: dict[int, np.ndarray]
+    subdomain_maps: dict[int, dict[int, list[tuple]]]
+    membership: np.ndarray
+    version: int
+
+    def __post_init__(self):
+        # Validate that the keys of ltog, gtol, and subdomain_maps are consistent
+        if not (self.ltog.keys() == self.gtol.keys() == self.subdomain_maps.keys()):
+            raise ValueError("Keys of ltog, gtol, and subdomain_maps must be the same.")
+
+    @property
+    def nsub(self) -> int:
+        """Returns the total number of subdomains"""
+        return len(self.submeshes)
+    
+    @property
+    def subdomain_ids(self) -> list[int]:
+        """Returns a list of subdomain IDs"""
+        return list(self.submeshes.keys())

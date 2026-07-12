@@ -45,6 +45,15 @@ class HeatProblem:
         self.h = h
         self.dim = femspace.dim
 
+        assert self.dim in [1, 2], f"Unsupported dimension: {self.dim}. Only 1D and 2D problems are supported."
+        assert isinstance(self.h, (Callable, np.ndarray)), "Initial condition h must be either a callable function or a numpy array."
+        if isinstance(self.h, np.ndarray):
+            assert self.h.shape == (self.femspace.nnodes,), f"Invalid shape for initial condition array. Expected {(self.femspace.nnodes,)}, got {self.h.shape}."
+        assert isinstance(self.g, (Callable, np.ndarray)), "Boundary condition g must be either a callable function or a numpy array."
+        if isinstance(self.g, np.ndarray):
+            assert self.g.shape[0] == self.femspace.nbdnodes, f"Invalid shape for boundary condition array. Expected first dimension {self.femspace.nbdnodes}, got {self.g.shape[0]}."
+        assert isinstance(self.f, Callable), "Source term f must be a callable function."
+
         # Extract mesh information from the FEM space for use in the solver
         self.verts = self.femspace.mesh.vertices
         self.nnodes = self.femspace.nnodes
@@ -145,6 +154,15 @@ class HeatProblem:
             return self.evaluate(g, time_grid)
         else:
             raise ValueError("Unsupported type for boundary condition g.")
+        
+    def _assertions(self, t0, T, time_grid: np.ndarray, theta: float, lift: str):
+        logger.debug("Performing assertions for input parameters...")
+        assert theta >= 0 and theta <= 1, f"Invalid theta value {theta}. Must be in [0, 1]."
+        assert lift in ('nodal', 'harmonic'), f"Invalid lift type '{lift}'. Must be 'nodal' or 'harmonic'."
+        assert time_grid.ndim == 1, f"Invalid time_grid shape {time_grid.shape}. Expected a 1D array of time points."
+        assert time_grid[0] == t0, f"First time point in time_grid must be equal to t0 ({t0}), but got {time_grid[0]}."
+        assert time_grid[-1] == T, f"Last time point in time_grid must be equal to T ({T}), but got {time_grid[-1]}."
+        assert np.all(time_grid[1:-1] > t0) and np.all(time_grid[1:-1] < T), f"All time points in time_grid must be between t0 ({t0}) and T ({T}), but got {time_grid}."
 
     def solve_nodal(self, time_grid: np.ndarray, theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, homogeneous: bool = False, **kwargs) -> np.ndarray:
         """
@@ -379,79 +397,7 @@ class HeatProblem:
         solution[:, 0] = self.icond # Ensure initial condition is correctly set in the full space
         return solution
     
-    def solve_parabolic(self, time_grid: np.ndarray, theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, **kwargs):
-
-        # Total number of time nodes (including initial and final time)
-        ntime = len(time_grid)
-
-        # Total number of time steps
-        nsteps = ntime - 1
-
-        # Time step size (assuming uniform time steps)
-        dt = (self.T - self.t0) / nsteps
-
-        # Update the boundary condition values if a new g is provided (either as a function or as a numpy array)
-        g_to_use = g_new if g_new is not None else self.g
-        self.dirichlet_values = self.vectorize(g_to_use, time_grid) # shape (n_boundary, n_time)
-
-        # Pre-allocate solution array: columns are time steps
-        solution = np.zeros((self.femspace.nnodes, ntime))
-
-        logger.debug(f"Using θ-method time-stepping with θ = {theta} | Starting time integration | nsteps = {nsteps}, dt = {dt:.3e}")
-
-        # Precompute constant parts of the system matrix for the θ-method
-        lhs_const = self.mass_matrix_II + theta*dt*self.stiffness_matrix_II
-        rhs_const = self.mass_matrix_II - (1 - theta)*dt*self.stiffness_matrix_II
-
-        # Precompute the load vectors for all time steps if reuse_load is True, otherwise compute them on the fly in the time-stepping loop
-        if reuse_load and hasattr(self, 'F_all') and self.F_all.shape[1] == ntime:
-            F_all = self.F_all
-            logger.debug("Reusing previously computed load vectors for all time steps...")
-        else:
-            logger.debug("Computing load vectors for all time steps...")
-            F_all = np.column_stack([self.load_vector(t)[self.interior_nodes] for t in time_grid])
-            
-        if reuse_load:
-            self.F_all = F_all  # store only if reuse is enabled
-
-        logger.debug("Computing boundary contributions for all time steps...")
-
-        # Columns are psi_{n+1} - psi_n for n = 0, ..., nsteps-1
-        delta_psi_np1 = self.dirichlet_values[:, 1:] - self.dirichlet_values[:, :-1] # shape (n_boundary, n_steps)
-        delta_psi_n = np.column_stack([delta_psi_np1[:, 0:1], delta_psi_np1[:, :-1]]) # shape (n_boundary, n_steps)
-
-        logger.debug("Computing parabolic lifting values for all time steps...")
-
-        # Parabolic lifting values for all time steps
-        lift_values = np.zeros((self.nintnodes, ntime)) # shape (n_interior, n_time)
-        for i in range(ntime):
-            lift_values[:, i] = solver.solve(A = self.stiffness_matrix_II, b = -self.stiffness_matrix_IB @ self.dirichlet_values[:, i], **kwargs) # shape (n_interior,)
-        lift_np1 = lift_values[:, 1:] - lift_values[:, :-1] # shape (n_interior, n_steps)
-        lift_n = np.column_stack([lift_np1[:, 0:1], lift_np1[:, :-1]]) # shape (n_interior, n_steps)
-
-        # Precompute boundary contributions for all steps (vectorized)
-        R_all = dt*(theta*F_all[:, 1:] + (1-theta)*F_all[:, :-1]) - theta * self.mass_matrix_IB @ delta_psi_np1 - theta * self.mass_matrix_II @ lift_np1 - (1-theta) * self.mass_matrix_IB @ delta_psi_n - (1-theta) * self.mass_matrix_II @ lift_n  # shape (n_interior, n_steps)
-
-        logger.debug("Starting time-stepping loop with tqdm progress bar...")
-
-        # Time-stepping loop with tqdm
-        step = 0
-        t = self.t0
-        u_interior = self.icond[self.interior_nodes] - lift_values[:, 0] # shape (n_interior,)
-        with trange(nsteps, desc = "\033[92mHeat Solver\033[0m", unit="step",ascii = "░▒█", ncols = 100, disable = not sys.stdout.isatty()) as pbar:
-            for step in pbar:
-                pbar.set_postfix_str(f"\033[93mt={t:.3e}\033[0m")
-                t += dt
-                rhs = rhs_const @ u_interior + R_all[:, step]
-                u = solver.solve(lhs_const, rhs, **kwargs)
-                solution[self.interior_nodes, step + 1] = u # shape (n_interior,)
-                u_interior = u
-        solution[self.boundary_nodes, :] = self.dirichlet_values
-        solution[self.interior_nodes, :] += lift_values
-        solution[:, 0] = self.icond
-        return solution
-    
-    def solve(self, time_grid: np.ndarray, lift: Literal['nodal', 'harmonic', 'parabolic'] = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, homogeneous: bool = False, **kwargs):
+    def solve(self, time_grid: np.ndarray, lift: Literal['nodal', 'harmonic'] = 'nodal', theta: float = 0.5, solver: LinearSolver = DirectSolver(), reuse_load: bool = False, g_new: Optional[Callable | np.ndarray] = None, homogeneous: bool = False, **kwargs):
         """
         Solves the heat equation using the specified time-stepping method and boundary condition handling.
 
@@ -460,12 +406,10 @@ class HeatProblem:
         time_grid : np.ndarray, shape (ntime,)
             Array of time steps at which to solve the heat equation, i.e., [t0, t1, ..., T].
             Uniform time steps are assumed for the time-stepping scheme.
-        lift : Literal['nodal', 'harmonic', 'parabolic']
+        lift : Literal['nodal', 'harmonic']
             Method for handling Dirichlet boundary conditions. Options are:
                 - 'nodal': Directly modify the system to enforce Dirichlet BCs at the specified nodes.
                 - 'harmonic': Compute a harmonic lifting function that satisfies the Dirichlet BCs and 
-                   solve for the homogeneous part of the solution.
-                - 'parabolic': Compute a parabolic lifting function that satisfies the Dirichlet BCs and 
                    solve for the homogeneous part of the solution.
             Default is 'nodal'.
         theta : float
@@ -498,12 +442,11 @@ class HeatProblem:
         np.ndarray
             Solution array at all time steps, shape (nnodes, ntime) or (nintnodes, ntime) if homogeneous=True.
         """
+        self._assertions(self.t0, self.T, time_grid, theta, lift) if reuse_load else None
         if lift == 'nodal':
             solution = self.solve_nodal(time_grid = time_grid, theta = theta, solver = solver, reuse_load = reuse_load, g_new = g_new, homogeneous = homogeneous, **kwargs)
         elif lift == 'harmonic':
             solution = self.solve_harmonic(time_grid = time_grid, theta = theta, solver = solver, reuse_load = reuse_load, g_new = g_new, homogeneous = homogeneous, **kwargs)
-        # elif lift == 'parabolic':
-        #     solution = self.solve_parabolic(time_grid = time_grid, theta = theta, solver = solver, g_new = g_new, **kwargs)
         else:
-            raise ValueError(f"Unsupported lift method: {lift}. Supported options are 'nodal', 'harmonic', and 'parabolic'.")
+            raise ValueError(f"Unsupported lift method: {lift}. Supported options are 'nodal' and 'harmonic'.")
         return solution
